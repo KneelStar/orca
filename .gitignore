@@ -10,3 +10,4 @@ data/
 *.egg-info/
 build/
 dist/
+.stfolder/syncthing-folder-4ae1e5.txt
