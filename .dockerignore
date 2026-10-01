@@ -1,0 +1,7 @@
+*
+!Dockerfile
+!requirements.txt
+!orca_app/
+!orca_app/**
+**/__pycache__
+**/*.pyc

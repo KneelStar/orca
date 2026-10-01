@@ -1,0 +1,17 @@
+# Layer over compose.client.yaml to run commands on the POSIX host using SSH.
+services:
+  client:
+    environment:
+      ORCA_EXECUTION_MODE: ssh
+      ORCA_SSH_TARGET: ${ORCA_SSH_TARGET:?Set ORCA_SSH_TARGET to user@host}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - type: bind
+        source: ${ORCA_SSH_KEY_FILE:?Set ORCA_SSH_KEY_FILE}
+        target: /run/orca/ssh_key
+        read_only: true
+      - type: bind
+        source: ${ORCA_SSH_KNOWN_HOSTS_FILE:?Set ORCA_SSH_KNOWN_HOSTS_FILE}
+        target: /run/orca/known_hosts
+        read_only: true

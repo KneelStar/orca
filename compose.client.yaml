@@ -1,0 +1,21 @@
+services:
+  client:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${ORCA_BIND_IP:-127.0.0.1}:${ORCA_PORT:-8001}:8000"
+    environment:
+      ORCA_ROLE: client
+      ORCA_ADMIN_PASSWORD: ${ORCA_ADMIN_PASSWORD:?Set ORCA_ADMIN_PASSWORD}
+      ORCA_SESSION_SECRET: ${ORCA_SESSION_SECRET:?Set ORCA_SESSION_SECRET}
+      ORCA_CLIENT_TOKEN: ${ORCA_CLIENT_TOKEN:?Set ORCA_CLIENT_TOKEN}
+      ORCA_CLIENT_NAME: ${ORCA_CLIENT_NAME:-Server}
+      ORCA_COOKIE_SECURE: ${ORCA_COOKIE_SECURE:-false}
+      ORCA_EXECUTION_MODE: ${ORCA_EXECUTION_MODE:-local}
+      ORCA_SSH_TARGET: ${ORCA_SSH_TARGET:-}
+      ORCA_SSH_PORT: ${ORCA_SSH_PORT:-22}
+      ORCA_SSH_PYTHON: ${ORCA_SSH_PYTHON:-python3}
+    volumes:
+      - orca-client-data:/data
+volumes:
+  orca-client-data:

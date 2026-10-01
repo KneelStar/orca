@@ -1,0 +1,82 @@
+"""One host action at a time; output and terminal status survive page reloads."""
+import codecs
+import os
+import signal
+import subprocess
+import threading
+import time
+import uuid
+
+
+class Busy(Exception):
+    pass
+
+
+class Jobs:
+    def __init__(self, store, execution):
+        self.store = store
+        self.execution = execution
+        self.lock = threading.Lock()
+        self.active = None
+        for job in store.all('jobs'):
+            if job['status'] == 'running':
+                job.update(status='interrupted', finished=time.time())
+                job['output'] += '\nOrca restarted before this action finished. Check host state before rerunning.\n'
+                store.put('jobs', job)
+
+    def start(self, action):
+        with self.lock:
+            if self.active:
+                raise Busy('Another action is already running on this client.')
+            job = dict(id=uuid.uuid4().hex, name=action['name'], action_id=action['id'],
+                       status='running', started=time.time(), finished=None, exit_code=None, output='')
+            self.store.put('jobs', job)
+            self.active = job['id']
+            threading.Thread(target=self._run, args=(job, action.copy()), daemon=True).start()
+            return job.copy()
+
+    def _run(self, job, action):
+        process = None
+        timer = None
+        timed_out = threading.Event()
+        def append(text):
+            job['output'] = (job['output'] + text)[-262144:]
+            self.store.put('jobs', job)
+        def terminate():
+            timed_out.set()
+            try:
+                if os.name == 'nt':
+                    subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=10)
+                else:
+                    os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError, subprocess.SubprocessError):
+                pass
+        try:
+            # Do not expose Orca credentials to configured commands through their environment.
+            env = {k: v for k, v in os.environ.items() if not k.startswith('ORCA_')}
+            process = subprocess.Popen(**self.execution.command(action),
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                       env=env, start_new_session=os.name != 'nt')
+            timer = threading.Timer(action['timeout'] + (15 if self.execution.mode == 'ssh' else 0), terminate)
+            timer.daemon = True
+            timer.start()
+            decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+            while chunk := process.stdout.read1(4096):
+                append(decoder.decode(chunk))
+            append(decoder.decode(b'', final=True))
+            code = process.wait()
+            job.update(exit_code=code, status='timed_out' if timed_out.is_set() or (self.execution.mode == 'ssh' and code == 124) else ('succeeded' if code == 0 else 'failed'))
+            if timed_out.is_set():
+                append('\nAction exceeded its time limit.\n')
+        except Exception as error:
+            job['status'] = 'failed'
+            append(f'Unable to run action: {error}\n')
+        finally:
+            if timer:
+                timer.cancel()
+            if process and process.stdout:
+                process.stdout.close()
+            job['finished'] = time.time()
+            self.store.put('jobs', job)
+            with self.lock:
+                self.active = None
