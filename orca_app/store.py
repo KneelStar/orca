@@ -35,3 +35,14 @@ class Store:
     def delete(self, kind, key):
         with self.connect() as db:
             return db.execute('DELETE FROM records WHERE kind=? AND id=?', (kind, key)).rowcount > 0
+
+    def prune_jobs(self, cutoff):
+        # Delete only finished run records; action definitions and running jobs survive.
+        with self.connect() as db:
+            return db.execute("""
+                DELETE FROM records WHERE kind = 'jobs'
+                AND json_extract(value, '$.status') IN
+                    ('succeeded', 'failed', 'timed_out', 'interrupted')
+                AND COALESCE(json_extract(value, '$.finished'),
+                             json_extract(value, '$.started')) < ?
+            """, (cutoff,)).rowcount

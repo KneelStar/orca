@@ -6,3 +6,38 @@
 :root{color-scheme:light dark}body{margin:0;padding:24px;background:light-dark(#eef2f4,#0b1214)}#orca{max-width:1180px;margin:auto;min-height:70vh}#orca a{color:inherit;text-decoration:none}#orca button:focus-visible,#orca a:focus-visible{outline:3px solid var(--o-accent);outline-offset:3px}#orca .server-shell{position:relative;min-width:0}#orca .server-shell .server{width:100%;height:100%}#orca .server-edit{margin-top:7px;font-size:12px}#orca .actions .action-shell{display:flex;gap:4px;min-width:0}#orca .action-shell button:first-child{flex:1;overflow-wrap:anywhere}#orca .editor{scroll-margin-top:16px}#orca .editor h2{margin-bottom:12px}#orca textarea{font:14px/1.5 ui-monospace,monospace;width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--o-line);border-radius:6px;background:var(--o-bg);color:var(--o-ink)}#orca .full{grid-column:1/-1}#orca .danger{color:light-dark(#a22c27,#ffaaa2)}#orca .empty{padding:22px 0;color:var(--o-sub)}#orca .shortcut-shell{min-width:0}#orca .shortcut-shell .shortcut{width:100%;height:80px;overflow-wrap:anywhere}#orca .shortcut-shell .server-edit{width:100%}#orca .error{padding:12px;background:light-dark(#fff0ed,#402521);color:light-dark(#93261f,#ffc3ba);border-radius:8px;margin:12px 0;overflow-wrap:anywhere}#orca .job-list{width:100%;margin-top:12px}#orca pre{max-height:420px;overflow:auto;min-height:220px}#orca .confirm{padding:12px;margin:12px 0;border:1px solid var(--o-line);border-radius:8px}#orca .server strong{overflow-wrap:anywhere}#orca .logo{font-size:28px;color:var(--o-accent)}#orca .hidden{display:none!important}#orca .busy{opacity:.65}#orca .notice{min-height:18px}@media(max-width:720px){body{padding:8px}#orca .servers{grid-template-columns:1fr}}@media(pointer:coarse){#orca button,#orca a.shortcut{min-height:44px}}
 
 #orca .server-shell{display:flex;flex-direction:column;gap:6px}#orca .server-shell .server{height:auto;flex:1}#orca .server-shell>.server-edit{align-self:flex-start;margin-top:0}
+
+/* Edit controls live inside their cards without nesting interactive elements. */
+#orca .server-shell,#orca .shortcut-shell{position:relative;display:block;min-width:0}
+#orca .server-shell .server{width:100%;height:100%}
+#orca .server-shell .server>.row{padding-right:34px}
+#orca .shortcut-shell .shortcut{width:100%;height:80px;padding-right:56px;overflow-wrap:anywhere}
+#orca .icon-button{display:inline-grid;place-items:center;width:36px;min-width:36px;height:36px;padding:8px}
+#orca .icon-button svg{width:18px;height:18px;fill:currentColor}
+#orca .edit-control{position:absolute;top:10px;right:10px;z-index:1}
+#orca .actions .action-shell{display:flex;gap:4px;min-width:0;border:1px solid var(--o-line);border-radius:8px;background:var(--o-panel);padding:3px}
+#orca .action-shell .action-run{flex:1;overflow-wrap:anywhere;border:0;background:transparent}
+#orca .actions .action-shell{gap:0}
+#orca .actions .action-shell .icon-button{display:grid;place-items:center;border:0;background:transparent;width:30px;min-width:30px;padding:6px}
+#orca .shortcut-shell .shortcut{height:auto;min-height:88px}
+#orca .shortcut-copy{min-width:0}
+#orca .shortcut-url{margin-top:5px;overflow-wrap:anywhere}
+#orca .shortcut-icon{position:relative;width:24px;height:24px;flex:0 0 24px;display:grid;place-items:center;color:var(--o-accent)}
+#orca .shortcut-icon img{position:absolute;inset:0;width:24px;height:24px;object-fit:contain;background:var(--o-panel)}
+@media(pointer:coarse){#orca .actions .action-shell .icon-button{width:44px;min-width:44px;padding:11px}}
+@media(pointer:coarse){#orca .icon-button{width:44px;min-width:44px;height:44px;padding:11px}}
+
+/* Center short pages vertically while allowing tall pages to grow normally. */
+body{box-sizing:border-box;min-height:100vh;min-height:100svh;display:flex;flex-direction:column;justify-content:center}
+#orca{width:100%;margin-block:auto}
+
+/* Output and history are separate views of the action console. */
+#orca .console-tabs{display:flex;gap:18px;border-bottom:1px solid var(--o-line)}
+#orca .console-tab{border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;padding:0 0 10px;color:var(--o-sub)}
+#orca .console-tab.active{border-bottom-color:var(--o-accent);color:var(--o-ink)}
+#orca .console{display:flex;flex-direction:column}
+#orca #quick-panel,#orca #recent-panel{padding-top:2px;display:flex;flex-direction:column;flex:1}
+#orca .console-footer{margin-top:auto}
+#orca #recent-panel{min-height:260px;padding-top:20px}
+#orca .history-note{margin-top:12px}
+@media(max-width:720px){body{justify-content:flex-start}#orca{margin-block:0}}

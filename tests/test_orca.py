@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -53,6 +54,16 @@ class OrcaTests(unittest.TestCase):
         data=self.client.get('/api/session').json
         self.assertEqual(data['public_title'],'Family links')
         self.assertIsNone(data['client_name'])
+
+    def test_shortcut_tab_preference(self):
+        headers=self.login()
+        data={'name':'Service','url':'https://example.com','visibility':'shared'}
+        saved=self.client.post('/api/shortcuts',headers=headers,json=data).json
+        self.assertEqual(saved['open_in'],'new_tab')
+        updated=self.client.put('/api/shortcuts/'+saved['id'],headers=headers,json=dict(data,open_in='same_tab'))
+        self.assertEqual(updated.status_code,200)
+        self.assertEqual(self.client.get('/api/shortcuts').json[0]['open_in'],'same_tab')
+        self.assertEqual(self.client.post('/api/shortcuts',headers=headers,json=dict(data,open_in='invalid')).status_code,400)
 
     def test_csrf_sessions_and_unsafe_urls(self):
         self.assertEqual(self.client.post('/api/login',json={'password':self.config['ADMIN_PASSWORD']}).status_code,403)
@@ -158,6 +169,38 @@ class OrcaTests(unittest.TestCase):
             result=__import__('subprocess').run(shlex.split(command['args'][-1]),capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertEqual(result.stdout,'hello')
+
+    def test_history_expires_after_six_calendar_months_without_deleting_actions(self):
+        host=self.host();store=host.extensions['store'];jobs=host.extensions['jobs']
+        # August 31 must clamp to February 28, rather than overflow into March.
+        now=datetime(2026,8,31,12,tzinfo=timezone.utc)
+        cutoff=datetime(2026,2,28,12,tzinfo=timezone.utc).timestamp()
+        for key,status,finished in [('old-success','succeeded',cutoff-1),
+                                    ('old-failure','failed',cutoff-1),
+                                    ('old-timeout','timed_out',cutoff-1),
+                                    ('old-interrupted','interrupted',cutoff-1),
+                                    ('boundary','succeeded',cutoff),
+                                    ('new','succeeded',cutoff+1),
+                                    ('running','running',None)]:
+            store.put('jobs',dict(id=key,name=key,status=status,started=cutoff-100,
+                                  finished=finished,output='saved output',exit_code=None))
+        store.put('actions',dict(id='keep-action',name='Keep this button'))
+        jobs.last_cleanup=None
+        client=host.test_client();headers={'Authorization':'Bearer '+'t'*48}
+        with patch('orca_app.jobs.datetime') as clock:
+            clock.now.return_value=now
+            response=client.get('/api/host/jobs',headers=headers)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual({j['id'] for j in response.json},{'boundary','new','running'})
+        self.assertEqual(client.get('/api/host/jobs/old-success',headers=headers).status_code,404)
+        self.assertIsNotNone(store.get('actions','keep-action'))
+        self.assertEqual(store.get('jobs','running')['status'],'running')
+
+    def test_startup_also_removes_expired_history(self):
+        host=self.host();store=host.extensions['store']
+        store.put('jobs',dict(id='expired',status='succeeded',started=1,finished=2,output='old'))
+        restarted=self.host()
+        self.assertIsNone(restarted.extensions['store'].get('jobs','expired'))
 
 
 if __name__=='__main__':

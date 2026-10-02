@@ -1,5 +1,7 @@
 """One host action at a time; output and terminal status survive page reloads."""
 import codecs
+import calendar
+from datetime import datetime, timezone
 import os
 import signal
 import subprocess
@@ -18,11 +20,29 @@ class Jobs:
         self.execution = execution
         self.lock = threading.Lock()
         self.active = None
+        self.cleanup_lock = threading.Lock()
+        self.last_cleanup = None
         for job in store.all('jobs'):
             if job['status'] == 'running':
                 job.update(status='interrupted', finished=time.time())
                 job['output'] += '\nOrca restarted before this action finished. Check host state before rerunning.\n'
                 store.put('jobs', job)
+        self.prune_history()
+
+    def prune_history(self):
+        """Expire finished runs after six calendar months, at most hourly."""
+        with self.cleanup_lock:
+            now = time.monotonic()
+            if self.last_cleanup is not None and now - self.last_cleanup < 3600:
+                return
+            today = datetime.now(timezone.utc)
+            month_index = today.year * 12 + today.month - 1 - 6
+            year, month = divmod(month_index, 12)
+            month += 1
+            cutoff = today.replace(year=year, month=month,
+                                   day=min(today.day, calendar.monthrange(year, month)[1]))
+            self.store.prune_jobs(cutoff.timestamp())
+            self.last_cleanup = now
 
     def start(self, action):
         with self.lock:

@@ -119,7 +119,11 @@ Alternatively, set `ORCA_ROLE=orchestrator` or `ORCA_ROLE=client` and run `pytho
 
 Protect the environment files, databases, and backups: the orchestrator database contains client credentials and clients retain command output. Public shortcuts control visibility in Orca, not authorization at their destination. When using `0.0.0.0`, network access is controlled by your firewall, Tailscale policies, and bind address; Orca does not itself enroll devices into Tailscale. For browser HTTPS, terminate TLS through your existing reverse proxy or Tailscale Serve and enable secure cookies.
 
-Jobs run one at a time on each client. Reloading the browser does not stop a job. Orca retains the latest 256 KiB per job. An interrupted service marks unfinished jobs as interrupted on restart; it does not automatically retry a possibly destructive action. Inspect host state before rerunning. Commands should run in the foreground; detached processes cannot be reliably tracked as jobs. Output buffering by the command itself can delay displayed output.
+Jobs run one at a time on each client. Reloading the browser does not stop a job. Quick Output follows the current request; Recent Actions has its own output panel for browsing the latest 30 runs without replacing the current output. Starting an action switches to Quick Output.
+
+Finished job records and their output are automatically deleted six calendar months after completion. Cleanup runs on client startup and at most once per hour during authenticated client requests; an idle client cleans up when next used. Running jobs and action definitions are never removed by retention. Deleting records frees database pages for reuse; it does not necessarily shrink the SQLite file on disk. Each run retains the latest 262,144 decoded characters of output (approximately 256 KiB for ASCII).
+
+An interrupted service marks unfinished jobs as interrupted on restart; it does not automatically retry a possibly destructive action. Inspect host state before rerunning. Commands should run in the foreground; detached processes cannot be reliably tracked as jobs. Output buffering by the command itself can delay displayed output.
 
 ## Verification
 

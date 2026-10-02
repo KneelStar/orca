@@ -1,7 +1,9 @@
 'use strict';
 const $ = selector => document.querySelector(selector);
-const state = {session:null, preview:false, clients:[], shortcuts:[], metrics:new Map(), selected:null, actions:[], job:null, generation:0, polling:false};
+const state = {session:null, preview:false, clients:[], shortcuts:[], metrics:new Map(), selected:null, actions:[], job:null, historyJob:null, historyId:'', historyRequest:0, starting:false, generation:0, polling:false};
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pencilIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l11-11-4-4L4 16v4Zm13.5-16.5 3 3-1.5 1.5-3-3 1.5-1.5Z"/></svg>';
+const infoIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 10h2v7h-2v-7Zm0-3h2v2h-2V7Zm1-5a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z"/></svg>';
 const show = (selector, visible) => {$(selector).hidden = !visible;};
 const isAdmin = () => state.session?.admin && !state.preview;
 const isFleet = () => state.session?.role === 'orchestrator';
@@ -14,8 +16,15 @@ async function api(path, method='GET', data) {
   return value;
 }
 function remotePath(endpoint) { return isFleet() ? '/api/clients/'+state.selected+'/remote/'+endpoint : '/api/host/'+endpoint; }
-function notice(message) { $('#notice').textContent = message; }
 function hideEditors() { ['client','shortcut','action'].forEach(k=>show('#'+k+'-editor',false)); show('#action-confirm',false); }
+function setConsoleTab(name) {
+  const quick=name==='quick';
+  $('#quick-tab').classList.toggle('active',quick);
+  $('#quick-tab').setAttribute('aria-selected',String(quick));
+  $('#recent-tab').classList.toggle('active',!quick);
+  $('#recent-tab').setAttribute('aria-selected',String(!quick));
+  show('#quick-panel',quick);show('#recent-panel',!quick);
+}
 async function load() {
   state.session = await api('/api/session');
   if (!state.session.admin) state.preview = false;
@@ -49,12 +58,16 @@ function renderClients() {
     const m=state.metrics.get(c.id), d=m?.data;
     const disk=d?.disks?.length?Math.max(...d.disks.map(v=>v.percent)):null;
     const meters=[['CPU',d?.cpu],['RAM',d?.ram],['Disk (fullest)',disk]];
-    return `<div class="server-shell"><button class="server ${c.id===state.selected?'selected':''}" data-select="${c.id}" aria-pressed="${c.id===state.selected}"><div class="row"><strong>${escapeHTML(c.name)}</strong><div class="grow"></div><span class="${m?.ok?'status':'offline'}">${m?.ok?'● Online':m?'○ Unavailable':'Connecting'}</span></div><p class="muted">${escapeHTML(c.url)}${d?' · '+escapeHTML(d.os):''}</p><div class="meters">${meters.map(([label,value])=>`<div class="meter">${label}<b>${m?.ok && value != null?escapeHTML(value)+'%':'—'}</b></div>`).join('')}</div></button><button class="server-edit" data-edit-client="${c.id}">Edit client</button></div>`;
+    return `<div class="server-shell"><button class="server ${c.id===state.selected?'selected':''}" data-select="${c.id}" aria-pressed="${c.id===state.selected}"><div class="row"><strong>${escapeHTML(c.name)}</strong><span class="${m?.ok?'status':'offline'}">${m?.ok?'● Online':m?'○ Unavailable':'Connecting'}</span></div><p class="muted">${escapeHTML(c.url)}${d?' · '+escapeHTML(d.os):''}</p><div class="meters">${meters.map(([label,value])=>`<div class="meter">${label}<b>${m?.ok && value != null?escapeHTML(value)+'%':'—'}</b></div>`).join('')}</div></button><button class="icon-button edit-control" data-edit-client="${c.id}" aria-label="Edit ${escapeHTML(c.name)}">${pencilIcon}</button></div>`;
   }).join('') : '<p class="empty">Add your first client to manage its actions and see system metrics.</p>';
 }
 function renderShortcuts() {
   const items=state.shortcuts.filter(s=>isAdmin()||s.visibility==='shared');
-  $('#shortcuts').innerHTML=items.length?items.map(s=>`<div class="shortcut-shell"><a class="shortcut" href="${escapeHTML(s.url)}" target="_blank" rel="noopener noreferrer"><div><h3>${escapeHTML(s.name)} ↗</h3>${isAdmin()?`<p class="muted">${s.visibility==='shared'?'Shared':'Admin only'}</p>`:''}</div></a>${isAdmin()?`<button class="server-edit" data-edit-shortcut="${s.id}">Edit shortcut</button>`:''}</div>`).join(''):'<p class="empty">No shortcuts yet.</p>';
+  $('#shortcuts').innerHTML=items.length?items.map(s=>`<div class="shortcut-shell"><a class="shortcut" aria-label="${escapeHTML(s.name)}" href="${escapeHTML(s.url)}" target="${s.open_in==='same_tab'?'_self':'_blank'}" rel="noopener noreferrer"><span class="shortcut-icon" aria-hidden="true"><span>↗</span><img src="${escapeHTML(new URL('/favicon.ico',s.url).href)}" alt="" referrerpolicy="no-referrer"></span><div class="shortcut-copy"><h3>${escapeHTML(s.name)}${isAdmin()?` <span class="muted">- ${s.visibility==='shared'?'Shared':'Admin only'}</span>`:''}</h3><p class="muted shortcut-url">${escapeHTML(s.url)}</p></div></a>${isAdmin()?`<button class="icon-button edit-control" data-edit-shortcut="${s.id}" aria-label="Edit ${escapeHTML(s.name)}">${pencilIcon}</button>`:''}</div>`).join(''):'<p class="empty">No shortcuts yet.</p>';
+  $('#shortcuts').querySelectorAll('img').forEach(img=>{
+    const update=()=>{img.hidden=!img.naturalWidth;img.previousElementSibling.hidden=!!img.naturalWidth;};
+    img.onload=update;img.onerror=update;if(img.complete && img.naturalWidth)update();
+  });
 }
 async function refreshMetrics() {
   if (!isAdmin()) return;
@@ -75,45 +88,59 @@ function renderConnection() {
   const c=state.clients.find(c=>c.id===state.selected),m=state.metrics.get(state.selected);
   $('#client-name').textContent = isFleet() ? c?.name || '' : state.session.client_name;
   const d=m?.data;
-  $('#client-address').textContent = [isFleet()?c?.url:null,d?.os,d?.execution_target,'Client manager'].filter(Boolean).join(' · ');
+  $('#client-address').textContent = [isFleet()?c?.url:null,d?.os].filter(Boolean).join(' · ');
   $('#connection').textContent = m?.ok?'● Connected':'○ Unavailable';
   show('#work-grid',!!m?.ok);show('#unavailable',!m?.ok);
   $('#unavailable').textContent=m?.error||'Connecting to client…';
-  if(d?.metrics_scope)$('#client-address').textContent+=' · '+d.metrics_scope;
   if(!isFleet()&&d)$('#client-address').textContent+=` · CPU ${d.cpu}% · RAM ${d.ram}%`;
 }
 async function selectClient(id) {
-  state.selected=id;state.job=null;state.actions=[];state.generation++;renderActions();
+  state.selected=id;state.job=null;state.historyJob=null;state.historyId='';state.historyRequest++;state.starting=false;state.actions=[];state.generation++;renderActions();
   const generation=state.generation; hideEditors(); clearError();
-  $('#output').textContent='Select an action to view its output.';$('#job-status').textContent='Ready';
+  $('#output').textContent='Run an action to view its output.';
   $('#job-history').innerHTML='<option value="">No actions yet</option>';
-  $('#job-detail').textContent='Output is saved on this client.';
+  $('#job-detail').textContent='';show('#job-detail',false);
+  $('#history-output').textContent='Select a run to view its output.';
+  $('#history-detail').textContent='';show('#history-detail',false);
   if(isFleet())renderClients();renderConnection();show('#workspace',true);
   if(!state.metrics.get(id)?.ok)return;
   const [actions,jobs]=await Promise.all([api(remotePath('actions')),api(remotePath('jobs'))]);
   if(generation!==state.generation)return;
   state.actions=actions;renderActions();renderHistory(jobs);
-  if(jobs.length)await selectJob(jobs[0].id);
+  const running=jobs.find(j=>j.status==='running');
+  if(running){
+    const job=await api(remotePath('jobs/'+running.id));
+    if(generation===state.generation){state.job=job;renderJob();renderActions();}
+  }
 }
 function renderActions() {
-  $('#actions').innerHTML=state.actions.length?state.actions.map(a=>`<div class="action-shell"><button data-run="${a.id}">${escapeHTML(a.name)}</button><button data-edit-action="${a.id}" aria-label="Edit ${escapeHTML(a.name)}">Edit</button></div>`).join(''):'<p class="empty">Add a command to create your first action.</p>';
+  const running=state.starting || state.job?.status==='running';
+  $('#actions').innerHTML=state.actions.length?state.actions.map(a=>`<div class="action-shell"><button class="action-run" data-run="${a.id}" ${running?'disabled':''}>${escapeHTML(a.name)}</button><button class="icon-button" data-info-action="${a.id}" aria-label="Information about ${escapeHTML(a.name)}">${infoIcon}</button><button class="icon-button" data-edit-action="${a.id}" aria-label="Edit ${escapeHTML(a.name)}">${pencilIcon}</button></div>`).join(''):'<p class="empty">Add a command to create your first action.</p>';
 }
 function renderHistory(jobs) {
-  $('#job-history').innerHTML=jobs.length?jobs.map(j=>`<option value="${j.id}">${escapeHTML(j.name)} · ${escapeHTML(j.status)} · ${escapeHTML(new Date(j.started*1000).toLocaleString())}</option>`).join(''):'<option value="">No actions yet</option>';
-  if(state.job)$('#job-history').value=state.job.id;
+  $('#job-history').innerHTML='<option value="">'+(jobs.length?'Select a run':'No actions yet')+'</option>'+jobs.map(j=>`<option value="${j.id}">${escapeHTML(j.name)} · ${escapeHTML(j.status)} · ${escapeHTML(new Date(j.started*1000).toLocaleString())}</option>`).join('');
+  $('#job-history').value=state.historyId;
 }
 async function selectJob(id) {
-  const generation=state.generation;
-  const job=await api(remotePath('jobs/'+id));
-  if(generation!==state.generation)return;
-  state.job=job;renderJob();
+  const generation=state.generation,request=++state.historyRequest;
+  state.historyId=id;state.historyJob=null;
+  $('#history-output').textContent=id?'Loading output…':'Select a run to view its output.';
+  show('#history-detail',false);
+  if(!id)return;
+  try {
+    const job=await api(remotePath('jobs/'+id));
+    if(generation!==state.generation || request!==state.historyRequest)return;
+    state.historyJob=job;renderJob(job,true);
+  } catch(e) {
+    if(generation===state.generation && request===state.historyRequest)$('#history-output').textContent=e.message;
+  }
 }
-function renderJob() {
-  const j=state.job;if(!j)return;
-  $('#output').textContent=j.output || (j.status==='running'?'Waiting for command output…':'No output.');
-  $('#job-status').textContent=j.status.replace('_',' ');
-  $('#job-detail').textContent=j.name+' · '+(j.exit_code===null?'':`Exit ${j.exit_code} · `)+'Latest 256 KiB of output retained';
-  $('#job-history').value=j.id;
+function renderJob(j=state.job,history=false) {
+  if(!j)return;
+  $(history?'#history-output':'#output').textContent=j.output || (j.status==='running'?'Waiting for command output…':'No output.');
+  const detail=history?'#history-detail':'#job-detail';
+  $(detail).textContent=j.name+' · '+j.status.replace('_',' ')+(j.exit_code===null?'':` · Exit ${j.exit_code}`);
+  show(detail,true);
 }
 function input(label,name,value='',type='text',required=true) {
   return `<label>${label}<input name="${name}" type="${type}" value="${escapeHTML(value)}" ${required?'required':''} autocomplete="${type==='password'?'off':'on'}"></label>`;
@@ -124,7 +151,7 @@ function edit(kind,item=null) {
   box.dataset.item=item?.id || 'new';
   let fields='';
   if(kind==='client')fields=input('Name','name',item?.name)+input('Client address (include port)','url',item?.url||'http://','url')+input(item?'Client token (blank keeps current)':'Client token','token','','password',!item);
-  if(kind==='shortcut')fields=input('Name','name',item?.name)+input('URL','url',item?.url||'https://','url')+`<label>Visibility<select name="visibility"><option value="admin" ${item?.visibility!=='shared'?'selected':''}>Admin only</option><option value="shared" ${item?.visibility==='shared'?'selected':''}>Shared</option></select></label>`;
+  if(kind==='shortcut')fields=input('Name','name',item?.name)+input('URL','url',item?.url||'https://','url')+`<label>Visibility<select name="visibility"><option value="admin" ${item?.visibility!=='shared'?'selected':''}>Admin only</option><option value="shared" ${item?.visibility==='shared'?'selected':''}>Shared</option></select></label><label>Open in<select name="open_in"><option value="new_tab" ${item?.open_in!=='same_tab'?'selected':''}>New tab</option><option value="same_tab" ${item?.open_in==='same_tab'?'selected':''}>Same tab</option></select></label>`;
   if(kind==='action')fields=input('Name','name',item?.name)+input('Working directory (optional)','cwd',item?.cwd||'','text',false)+`<label class="full">Command<textarea name="command" rows="3" required>${escapeHTML(item?.command||'')}</textarea></label>`+input('Timeout (seconds)','timeout',item?.timeout||3600,'number');
   box.innerHTML=`<h2>${item?'Edit':'Add'} ${kind}</h2><form><div class="fields">${fields}</div><div class="row"><button class="primary">Save ${kind}</button><button type="button" data-close="${kind}-editor">Cancel</button>${item?'<div class="grow"></div><button type="button" class="danger" data-delete>Delete</button>':''}</div></form>`;
   box.hidden=false;box.querySelector('input').focus();
@@ -134,7 +161,7 @@ function edit(kind,item=null) {
     event.preventDefault();const button=event.submitter;button.disabled=true;
     try {
       const data=Object.fromEntries(new FormData(event.target));if(kind==='action')data.timeout=Number(data.timeout);
-      await api(base+(item?'/'+item.id:''),item?'PUT':'POST',data);box.hidden=true;notice(`${kind[0].toUpperCase()+kind.slice(1)} saved.`);
+      await api(base+(item?'/'+item.id:''),item?'PUT':'POST',data);box.hidden=true;
       if(kind==='action'&&selected===state.selected){state.actions=await api(remotePath('actions'));renderActions();}
       else if(kind==='shortcut'){state.shortcuts=await api('/api/shortcuts');renderShortcuts();}
       else await load();
@@ -142,19 +169,27 @@ function edit(kind,item=null) {
   };
   if(item)box.querySelector('[data-delete]').onclick=async()=>{
     if(!confirm(`Delete ${kind} “${item.name}”?${kind==='client'?' This only removes it from Orca.':''}`))return;
-    try{await api(base+'/'+item.id,'DELETE');box.hidden=true;if(kind==='action'){state.actions=await api(remotePath('actions'));renderActions();}else await load();notice('Deleted.');}catch(e){fail(e);}
+    try{await api(base+'/'+item.id,'DELETE');box.hidden=true;if(kind==='action'){state.actions=await api(remotePath('actions'));renderActions();}else await load();}catch(e){fail(e);}
   };
 }
-function confirmAction(id) {
+function showActionInfo(id) {
   const a=state.actions.find(a=>a.id===id);if(!a)return;
   const box=$('#action-confirm');box.hidden=false;
-  box.innerHTML=`<h3>Run ${escapeHTML(a.name)}?</h3><pre>${escapeHTML(a.command)}</pre><p class="muted">${escapeHTML(a.cwd||'Client service working directory')} · Timeout ${a.timeout}s</p><div class="row"><button class="primary" id="confirm-run">Run action</button><button data-close="action-confirm">Cancel</button></div>`;
+  box.innerHTML=`<h3>${escapeHTML(a.name)}</h3><pre>${escapeHTML(a.command)}</pre><p class="muted">Working directory: ${escapeHTML(a.cwd||'Client service working directory')} · Timeout: ${a.timeout}s</p><div class="row"><button data-close="action-confirm">Close</button></div>`;
+}
+async function runAction(id) {
+  if(state.starting || state.job?.status==='running')return;
+  const a=state.actions.find(a=>a.id===id);if(!a)return;
   const generation=state.generation,path=remotePath('actions/'+id+'/run');
-  $('#confirm-run').onclick=async()=>{
-    $('#confirm-run').disabled=true;
-    try{const job=await api(path,'POST',{});if(generation!==state.generation)return;state.job=job;box.hidden=true;const jobs=await api(remotePath('jobs'));renderHistory(jobs);renderJob();notice(a.name+' started.');}
-    catch(e){fail(e);if($('#confirm-run'))$('#confirm-run').disabled=false;}
-  };
+  clearError();
+  state.starting=true;renderActions();
+  try{
+    const job=await api(path,'POST',{});if(generation!==state.generation)return;
+    state.job=job;show('#action-confirm',false);setConsoleTab('quick');renderJob();renderActions();
+    const jobs=await api(remotePath('jobs'));if(generation!==state.generation)return;
+    renderHistory(jobs);renderJob();
+  } catch(e){if(generation===state.generation)fail(e);}
+  finally{if(generation===state.generation){state.starting=false;renderActions();}}
 }
 document.addEventListener('click',event=>{
   const b=event.target.closest('button');if(!b)return;
@@ -164,7 +199,8 @@ document.addEventListener('click',event=>{
     const id=b.dataset['edit'+kind[0].toUpperCase()+kind.slice(1)];
     if(id)edit(kind,state[kind==='client'?'clients':kind==='shortcut'?'shortcuts':'actions'].find(i=>i.id===id));
   }
-  if(b.dataset.run)confirmAction(b.dataset.run);
+  if(b.dataset.infoAction)showActionInfo(b.dataset.infoAction);
+  if(b.dataset.run)runAction(b.dataset.run);
 });
 $('#add-client').onclick=()=>edit('client');$('#add-shortcut').onclick=()=>edit('shortcut');$('#add-action').onclick=()=>edit('action');
 $('#auth-button').onclick=async()=>{
@@ -176,7 +212,9 @@ $('#login-form').onsubmit=async event=>{
   try{state.session=await api('/api/login','POST',Object.fromEntries(new FormData(event.target)));event.target.reset();show('#login',false);await load();}catch(e){fail(e);}finally{button.disabled=false;}
 };
 $('#preview').onclick=()=>{state.preview=!state.preview;state.generation++;clearError();load().catch(fail);};
-$('#job-history').onchange=event=>{if(event.target.value)selectJob(event.target.value).catch(fail);};
+$('#quick-tab').onclick=()=>setConsoleTab('quick');
+$('#recent-tab').onclick=()=>setConsoleTab('recent');
+$('#job-history').onchange=event=>selectJob(event.target.value);
 let ticks=0;
 setInterval(async()=>{
   if(state.polling||!isAdmin()||document.hidden)return;
@@ -184,7 +222,12 @@ setInterval(async()=>{
   try{
     if(state.job?.status==='running'){
       const job=await api(remotePath('jobs/'+state.job.id));
-      if(generation===state.generation){state.job=job;renderJob();if(job.status!=='running'){const jobs=await api(remotePath('jobs'));if(generation===state.generation)renderHistory(jobs);}}
+      if(generation===state.generation){state.job=job;renderJob();if(job.status!=='running'){renderActions();const jobs=await api(remotePath('jobs'));if(generation===state.generation)renderHistory(jobs);}}
+    }
+    if(generation===state.generation && state.historyJob?.status==='running'){
+      const request=state.historyRequest,id=state.historyId;
+      const job=state.job?.id===id?state.job:await api(remotePath('jobs/'+id));
+      if(generation===state.generation && request===state.historyRequest){state.historyJob=job;renderJob(job,true);}
     }
     if(++ticks%5===0)await refreshMetrics();
   }catch(e){fail(e);}finally{state.polling=false;}

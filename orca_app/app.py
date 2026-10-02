@@ -70,10 +70,13 @@ def create_app(overrides=None):
             @wraps(fn)
             def wrapped(*args, **kwargs):
                 if machine and token_authenticated():
+                    jobs.prune_history()
                     return fn(*args, **kwargs)
                 if not authenticated():
                     abort(401, 'Admin login required.')
                 csrf()
+                if jobs:
+                    jobs.prune_history()
                 return fn(*args, **kwargs)
             return wrapped
         return decorator
@@ -128,7 +131,7 @@ def create_app(overrides=None):
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https: http:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         return response
 
     @app.get('/')
@@ -191,8 +194,11 @@ def create_app(overrides=None):
         visibility = data.get('visibility', 'admin')
         if visibility not in ('shared', 'admin'):
             abort(400, 'Invalid visibility.')
+        open_in = data.get('open_in', 'new_tab')
+        if open_in not in ('new_tab', 'same_tab'):
+            abort(400, 'Invalid tab preference.')
         return jsonify(store.put('shortcuts', dict(id=key or uuid.uuid4().hex, name=text(data, 'name'),
-                    url=url(text(data, 'url', 2048)), visibility=visibility)))
+                    url=url(text(data, 'url', 2048)), visibility=visibility, open_in=open_in)))
 
     @app.delete('/api/shortcuts/<key>')
     @protect()

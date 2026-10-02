@@ -4,7 +4,32 @@
 <div id="error" class="error" role="alert" hidden></div>
 <section id="login" class="editor" hidden><h2>Admin login</h2><form id="login-form"><div class="fields"><label>Password<input type="password" name="password" autocomplete="current-password" required></label></div><div class="row"><button class="primary">Sign in</button><button type="button" data-close="login">Cancel</button></div></form></section>
 <div class="section-head"><div><h1 id="page-title">Orca</h1><p id="fleet-summary" class="muted" hidden></p></div><button class="primary" id="add-client" hidden>+ Add client</button></div>
-<section id="fleet" hidden><div class="servers" id="servers"></div><div id="client-editor" class="editor" hidden></div></section>
-<section class="workspace" id="workspace" hidden><div class="workspace-head"><div><h2 id="client-name"></h2><p class="muted" id="client-address"></p></div><div class="grow"></div><span class="badge" id="connection">Connecting</span></div><div id="work-grid" class="work-grid"><div class="controls"><div class="row"><h3>Quick actions</h3><div class="grow"></div><button class="primary" id="add-action">+ Add action</button></div><div class="actions" id="actions"></div><div class="editor" id="action-editor" hidden></div><div id="action-confirm" class="confirm" hidden></div></div><div class="console"><div class="row"><span class="console-tab">Quick output</span><div class="grow"></div><span class="muted" id="job-status">Ready</span></div><label class="muted" for="job-history">Recent actions</label><select id="job-history" class="job-list"><option value="">No actions yet</option></select><pre id="output" aria-live="polite">Select an action to view its output.</pre><div class="console-footer muted" id="job-detail">Output is saved on this client.</div></div></div><div id="unavailable" class="console" hidden></div></section>
-<section class="bottom" id="shortcut-section" hidden><div class="section-head"><h2>Shortcuts</h2><button class="primary" id="add-shortcut" hidden>+ Add shortcut</button></div><div class="shortcuts" id="shortcuts"></div><div id="shortcut-editor" class="editor" hidden></div></section><p id="notice" class="notice" role="status"></p>
+<section id="fleet" hidden><div id="client-editor" class="editor" hidden></div><div class="servers" id="servers"></div></section>
+<section class="workspace" id="workspace" hidden>
+  <div class="workspace-head"><div><h2 id="client-name"></h2><p class="muted" id="client-address"></p></div><div class="grow"></div><span class="badge" id="connection">Connecting</span></div>
+  <div id="work-grid" class="work-grid">
+    <div class="controls">
+      <div class="row"><h3>Quick actions</h3><div class="grow"></div><button class="primary" id="add-action">+ Add action</button></div>
+      <div class="editor" id="action-editor" hidden></div><div class="actions" id="actions"></div><div id="action-confirm" class="confirm" hidden></div>
+    </div>
+    <div class="console">
+      <div class="console-tabs" role="tablist" aria-label="Action output">
+        <button class="console-tab active" id="quick-tab" role="tab" aria-selected="true" aria-controls="quick-panel">Quick output</button>
+        <button class="console-tab" id="recent-tab" role="tab" aria-selected="false" aria-controls="recent-panel">Recent actions</button>
+      </div>
+      <div id="quick-panel" role="tabpanel" aria-labelledby="quick-tab">
+        <pre id="output" aria-live="polite">Run an action to view its output.</pre>
+        <div class="console-footer muted" id="job-detail" hidden></div>
+      </div>
+      <div id="recent-panel" role="tabpanel" aria-labelledby="recent-tab" hidden>
+        <label class="muted" for="job-history">Saved action runs</label>
+        <select id="job-history" class="job-list"><option value="">No actions yet</option></select>
+        <pre id="history-output" aria-live="polite">Select a run to view its output.</pre>
+        <div class="console-footer muted" id="history-detail" hidden></div>
+      </div>
+    </div>
+  </div>
+  <div id="unavailable" class="console" hidden></div>
+</section>
+<section class="bottom" id="shortcut-section" hidden><div class="section-head"><h2>Shortcuts</h2><button class="primary" id="add-shortcut" hidden>+ Add shortcut</button></div><div id="shortcut-editor" class="editor" hidden></div><div class="shortcuts" id="shortcuts"></div></section>
 </main></div></body></html>
