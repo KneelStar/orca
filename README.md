@@ -18,14 +18,32 @@ This first milestone includes:
 
 Python 3.10+, Flask, Waitress, SQLite, psutil, and plain HTML/CSS/JavaScript. No Node server, frontend build step, external database, or message broker. The orchestrator authenticates to clients with distinct bearer tokens; browsers do not receive those tokens. Output is polled once per second while a selected job runs. Metrics refresh every five seconds while the admin page is visible.
 
+## Exporting a local image
+
+The orchestrator and client use the same image; `ORCA_ROLE` selects the service. Build and export it on a machine with Docker access:
+
+```sh
+docker build -t orca:0.1.0 .
+docker save orca:0.1.0 | gzip > orca-0.1.0.tar.gz
+```
+
+Copy `orca-0.1.0.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
+
+```sh
+gunzip -c orca-0.1.0.tar.gz | docker load
+docker compose up -d
+```
+
+The Compose files use `orca:0.1.0` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
+
 ## Docker: Orca orchestrator
 
-Copy `.env.example` to `.env`, then set:
+Copy `.env.orchestrator.example` to `.env`, then set:
 
 - `ORCA_ADMIN_PASSWORD`: your administrator password, at least 12 characters.
 - `ORCA_SESSION_SECRET`: an independent random session-signing secret, at least 32 characters.
 - `ORCA_ADMIN_TITLE` and `ORCA_PUBLIC_TITLE`: the two page headings.
-- `ORCA_BIND_IP`: this machine's Tailscale address if you want access over your tailnet. The default is localhost only.
+- `ORCA_BIND_IP`: `0.0.0.0` by default so network and Tailscale devices can connect. Set `127.0.0.1` for localhost-only access.
 - `ORCA_PORT`: the external port, normally 8000 for Orca.
 
 Generate random secrets with `python3 -c "import secrets; print(secrets.token_urlsafe(48))"`.
@@ -38,7 +56,7 @@ Visit the bound address and port. Shared visitors see only shared shortcuts. Use
 
 ## Docker: Orca Client
 
-On each server, use a separate `.env` with its own password, session secret, and random `ORCA_CLIENT_TOKEN`. Set `ORCA_CLIENT_NAME`, `ORCA_BIND_IP`, and `ORCA_PORT=8001` (otherwise a copied example's 8000 remains in effect).
+On each server, copy `.env.client.example` to `.env`, then set its own admin password, session secret, and random `ORCA_CLIENT_TOKEN`. Set `ORCA_CLIENT_NAME`, `ORCA_BIND_IP`, and `ORCA_PORT=8001`.
 
 ```sh
 docker compose -f compose.client.yaml up -d --build
@@ -83,7 +101,7 @@ With the appropriate environment configured:
 .venv-orca/bin/orca-client
 ```
 
-Alternatively, set `ORCA_ROLE=orchestrator` or `ORCA_ROLE=client` and run `python -m orca_app`. Set `ORCA_ENV_FILE` to select a different environment file. `ORCA_DATABASE` selects the database path. Native services bind to localhost by default; set `ORCA_HOST` to the Tailscale interface address for tailnet access. Native clients execute commands using the service user's shell and permissions, with the service's working directory unless the action specifies one.
+Alternatively, set `ORCA_ROLE=orchestrator` or `ORCA_ROLE=client` and run `python -m orca_app`. Set `ORCA_ENV_FILE` to select a different environment file. `ORCA_DATABASE` selects the database path. Native services bind to `0.0.0.0` by default; set `ORCA_HOST=127.0.0.1` for localhost-only access. Native clients execute commands using the service user's shell and permissions, with the service's working directory unless the action specifies one.
 
 ## Configuration
 
@@ -93,13 +111,13 @@ Alternatively, set `ORCA_ROLE=orchestrator` or `ORCA_ROLE=client` and run `pytho
 | `ORCA_PUBLIC_TITLE` | Your home base | Shared page heading |
 | `ORCA_CLIENT_NAME` | Hostname | Client identity |
 | `ORCA_COOKIE_SECURE` | false | Set true when serving through HTTPS |
-| `ORCA_HOST` | 127.0.0.1 | Native bind address; container binds internally to all interfaces |
+| `ORCA_HOST` | 0.0.0.0 | Native bind address; set `127.0.0.1` for localhost-only access |
 | `ORCA_PORT` | 8000/8001 | Native service or Compose published port |
-| `ORCA_BIND_IP` | 127.0.0.1 | Compose published interface |
+| `ORCA_BIND_IP` | 0.0.0.0 | Compose published interface; use `127.0.0.1` for localhost-only access |
 | `ORCA_DATABASE` | data/ROLE.sqlite3 | Native database path |
 | `ORCA_EXECUTION_MODE` | local | Client command and metrics target; optional ssh |
 
-Protect the environment files, databases, and backups: the orchestrator database contains client credentials and clients retain command output. Public shortcuts control visibility in Orca, not authorization at their destination. Network access is controlled by your Tailscale policies and bind address; Orca does not itself enroll devices into Tailscale. For browser HTTPS, terminate TLS through your existing reverse proxy or Tailscale Serve and enable secure cookies.
+Protect the environment files, databases, and backups: the orchestrator database contains client credentials and clients retain command output. Public shortcuts control visibility in Orca, not authorization at their destination. When using `0.0.0.0`, network access is controlled by your firewall, Tailscale policies, and bind address; Orca does not itself enroll devices into Tailscale. For browser HTTPS, terminate TLS through your existing reverse proxy or Tailscale Serve and enable secure cookies.
 
 Jobs run one at a time on each client. Reloading the browser does not stop a job. Orca retains the latest 256 KiB per job. An interrupted service marks unfinished jobs as interrupted on restart; it does not automatically retry a possibly destructive action. Inspect host state before rerunning. Commands should run in the foreground; detached processes cannot be reliably tracked as jobs. Output buffering by the command itself can delay displayed output.
 

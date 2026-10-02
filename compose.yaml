@@ -1,9 +1,10 @@
 services:
   orchestrator:
+    image: ${ORCA_IMAGE:-orca:0.1.0}
     build: .
     restart: unless-stopped
     ports:
-      - "${ORCA_BIND_IP}:${ORCA_PORT}:8000"
+      - "${ORCA_BIND_IP:-0.0.0.0}:${ORCA_PORT:-8000}:8000"
     environment:
       ORCA_ROLE: orchestrator
       ORCA_ADMIN_PASSWORD: ${ORCA_ADMIN_PASSWORD:?Set ORCA_ADMIN_PASSWORD}

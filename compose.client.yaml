@@ -1,9 +1,10 @@
 services:
   client:
+    image: ${ORCA_IMAGE:-orca:0.1.0}
     build: .
     restart: unless-stopped
     ports:
-      - "${ORCA_BIND_IP:-127.0.0.1}:${ORCA_PORT:-8001}:8000"
+      - "${ORCA_BIND_IP:-0.0.0.0}:${ORCA_PORT:-8001}:8000"
     environment:
       ORCA_ROLE: client
       ORCA_ADMIN_PASSWORD: ${ORCA_ADMIN_PASSWORD:?Set ORCA_ADMIN_PASSWORD}
