@@ -23,18 +23,18 @@ Python 3.10+, Flask, Waitress, SQLite, psutil, and plain HTML/CSS/JavaScript. No
 The orchestrator and client use the same image; `ORCA_ROLE` selects the service. Build and export it on a machine with Docker access:
 
 ```sh
-docker build -t orca:0.1.0 .
-docker save orca:0.1.0 | gzip > orca-0.1.0.tar.gz
+docker build -t orca:0.1.1 .
+docker save orca:0.1.1 | gzip > orca-0.1.1.tar.gz
 ```
 
-Copy `orca-0.1.0.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
+Copy `orca-0.1.1.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
 
 ```sh
-gunzip -c orca-0.1.0.tar.gz | docker load
+gunzip -c orca-0.1.1.tar.gz | docker load
 docker compose up -d
 ```
 
-The Compose files use `orca:0.1.0` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
+The Compose files use `orca:0.1.1` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
 
 ## Docker: Orca orchestrator
 
@@ -105,17 +105,17 @@ Alternatively, set `ORCA_ROLE=orchestrator` or `ORCA_ROLE=client` and run `pytho
 
 ## Configuration
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `ORCA_ADMIN_TITLE` | Your fleet | Admin page heading on the orchestrator |
-| `ORCA_PUBLIC_TITLE` | Your home base | Shared page heading |
-| `ORCA_CLIENT_NAME` | Hostname | Client identity |
-| `ORCA_COOKIE_SECURE` | false | Set true when serving through HTTPS |
-| `ORCA_HOST` | 0.0.0.0 | Native bind address; set `127.0.0.1` for localhost-only access |
-| `ORCA_PORT` | 8000/8001 | Native service or Compose published port |
-| `ORCA_BIND_IP` | 0.0.0.0 | Compose published interface; use `127.0.0.1` for localhost-only access |
-| `ORCA_DATABASE` | data/ROLE.sqlite3 | Native database path |
-| `ORCA_EXECUTION_MODE` | local | Client command and metrics target; optional ssh |
+| Variable              | Default           | Purpose                                                                |
+| --------------------- | ----------------- | ---------------------------------------------------------------------- |
+| `ORCA_ADMIN_TITLE`    | Your fleet        | Admin page heading on the orchestrator                                 |
+| `ORCA_PUBLIC_TITLE`   | Your home base    | Shared page heading                                                    |
+| `ORCA_CLIENT_NAME`    | Hostname          | Client identity                                                        |
+| `ORCA_COOKIE_SECURE`  | false             | Set true when serving through HTTPS                                    |
+| `ORCA_HOST`           | 0.0.0.0           | Native bind address; set `127.0.0.1` for localhost-only access         |
+| `ORCA_PORT`           | 8000/8001         | Native service or Compose published port                               |
+| `ORCA_BIND_IP`        | 0.0.0.0           | Compose published interface; use `127.0.0.1` for localhost-only access |
+| `ORCA_DATABASE`       | data/ROLE.sqlite3 | Native database path                                                   |
+| `ORCA_EXECUTION_MODE` | local             | Client command and metrics target; optional ssh                        |
 
 Protect the environment files, databases, and backups: the orchestrator database contains client credentials and clients retain command output. Public shortcuts control visibility in Orca, not authorization at their destination. When using `0.0.0.0`, network access is controlled by your firewall, Tailscale policies, and bind address; Orca does not itself enroll devices into Tailscale. For browser HTTPS, terminate TLS through your existing reverse proxy or Tailscale Serve and enable secure cookies.
 
