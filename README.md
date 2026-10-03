@@ -81,6 +81,44 @@ docker compose -f compose.client.yaml -f compose.client-ssh.yaml up -d --build
 
 Commands then run on that host, and metrics come from its Python/psutil. The target account's permissions apply. Commands cannot prompt for a sudo password; configure narrowly scoped noninteractive permissions for the specific actions you want. Long-running commands have a timeout on the host as well as in Orca. This is not an interactive terminal. Desktop wake actions may also need the correct user's display/session environment.
 
+### Automated host setup on Ubuntu/Debian
+
+For an Orca Client container running on the same Ubuntu/Debian host it manages, use [scripts/setup_host.py](scripts/setup_host.py). This requires systemd. Run it **on the host**, from the repository directory:
+
+```sh
+sudo python3 scripts/setup_host.py
+```
+
+The script installs and enables the SSH server, installs Python/venv and sudo, creates the `orca-run` account, and installs psutil in `/home/orca-run/.orca-host`. It creates an SSH key under `/etc/orca-ssh`, authorizes it for `orca-run`, and records the host's local SSH public key for `host.docker.internal`. The private key is readable only by the container user, UID/GID `10001` by default. Existing authorized keys are preserved and the generated private key is reused on repeat runs. For a custom container user, pass `--container-uid` and `--container-gid`.
+
+**This script grants `orca-run` unrestricted passwordless sudo: `NOPASSWD: ALL`. Anyone able to run Orca actions can therefore execute commands as root on this host.** The script validates the sudoers rule and checks passwordless root access. Use the manual setup above if you want to grant only specific privileged commands.
+
+After successful setup, add or update these values in your existing client `.env`, preserving its passwords, session secret, client token, and port:
+
+```dotenv
+ORCA_IMAGE=orca:0.1.2
+ORCA_EXECUTION_MODE=ssh
+ORCA_SSH_TARGET=orca-run@host.docker.internal
+ORCA_SSH_PORT=22
+ORCA_SSH_PYTHON=/home/orca-run/.orca-host/bin/python
+ORCA_SSH_KEY_FILE=/etc/orca-ssh/id_ed25519
+ORCA_SSH_KNOWN_HOSTS_FILE=/etc/orca-ssh/known_hosts
+```
+
+The script prints the Python path for the account's actual home directory if it differs from `/home/orca-run`. With the image already loaded, restart the client from the directory containing `.env` and both Compose files:
+
+```sh
+sudo docker compose -f compose.client.yaml -f compose.client-ssh.yaml up -d --no-build
+```
+
+If SSH is restricted by your host firewall, allow connections from the client's Docker network to port 22. Test a quick action in Orca:
+
+```sh
+whoami; hostname; sudo -n id
+```
+
+The output should show `orca-run`, the host's hostname, and root identity for the last command. Actions use host filesystem paths for their working directory. Use `sudo -n` for privileged actions; it fails immediately if passwordless access is unavailable instead of attempting a password prompt. If setup stops with an error, fix the reported issue and rerun the script.
+
 ## Native startup
 
 Native execution is the simplest way for Orca Client to manage its host directly, and is supported by the code on Linux, macOS, and Windows. This milestone was exercised on Linux only.
