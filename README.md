@@ -23,18 +23,18 @@ Python 3.10+, Flask, Waitress, SQLite, psutil, and plain HTML/CSS/JavaScript. No
 The orchestrator and client use the same image; `ORCA_ROLE` selects the service. Build and export it on a machine with Docker access:
 
 ```sh
-docker build -t orca:0.1.1 .
-docker save orca:0.1.1 | gzip > orca-0.1.1.tar.gz
+docker build -t orca:0.1.2 .
+docker save orca:0.1.2 | gzip > orca-0.1.2.tar.gz
 ```
 
-Copy `orca-0.1.1.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
+Copy `orca-0.1.2.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
 
 ```sh
-gunzip -c orca-0.1.1.tar.gz | docker load
+gunzip -c orca-0.1.2.tar.gz | docker load
 docker compose up -d
 ```
 
-The Compose files use `orca:0.1.1` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
+The Compose files use `orca:0.1.2` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
 
 ## Docker: Orca orchestrator
 

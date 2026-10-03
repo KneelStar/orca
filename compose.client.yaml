@@ -1,6 +1,6 @@
 services:
   client:
-    image: ${ORCA_IMAGE:-orca:0.1.1}
+    image: ${ORCA_IMAGE:-orca:0.1.2}
     build: .
     restart: unless-stopped
     ports:
