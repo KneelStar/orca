@@ -111,7 +111,15 @@ The script prints the Python path for the account's actual home directory if it 
 sudo docker compose -f compose.client.yaml -f compose.client-ssh.yaml up -d --no-build
 ```
 
-If SSH is restricted by your host firewall, allow connections from the client's Docker network to port 22. Test a quick action in Orca:
+If UFW is active, the script prints firewall setup instructions unless you supply `--docker-network`. Find the client's existing network with `sudo docker network ls`, then allow its subnet to reach host SSH (replace `orca-client_default` with your actual network name):
+
+```sh
+sudo python3 scripts/setup_host.py --firewall-only --docker-network orca-client_default
+```
+
+For a full setup with firewall configuration, use `sudo python3 scripts/setup_host.py --docker-network orca-client_default`. The network must already exist; otherwise, start the client first and run the firewall-only command afterward. The script reads the network's IPv4 subnet and adds a UFW rule for TCP port 22 to the default Docker bridge gateway. It does not enable UFW or open other ports. If `host.docker.internal` resolves to a custom address, add `--ssh-host-address ADDRESS`. Repeating the same command is safe; if Docker recreates the network with a different subnet, rerun it for the new subnet and remove the obsolete UFW rule with `sudo ufw status numbered` and `sudo ufw delete RULE_NUMBER`.
+
+Keep bridge networking for these Compose files. Host networking ignores published port mappings and requires separate changes to the service's listening port and SSH target. Test a quick action in Orca:
 
 ```sh
 whoami; hostname; sudo -n id

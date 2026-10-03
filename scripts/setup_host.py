@@ -2,6 +2,8 @@
 """Configure an Ubuntu/Debian host for Orca's Docker-to-host SSH mode."""
 
 import argparse
+import ipaddress
+import json
 import os
 from pathlib import Path
 import pwd
@@ -22,15 +24,61 @@ def run(*args, capture=False):
                           stdout=subprocess.PIPE if capture else None)
 
 
+def configure_firewall(network_name, host_address=None):
+    if not shutil.which('ufw'):
+        print('UFW is not installed; no firewall changes made.')
+        return
+    status = subprocess.run(['ufw', 'status'], check=True, text=True,
+                            capture_output=True, env={**os.environ, 'LC_ALL': 'C'}).stdout
+    if 'Status: active' not in status:
+        print('UFW is inactive; no firewall changes made.')
+        return
+    if not network_name:
+        print('UFW is active. Allow Docker SSH with:\n'
+              'sudo python3 scripts/setup_host.py --firewall-only --docker-network NETWORK_NAME\n'
+              'Find the client network with: sudo docker network ls')
+        return
+    network = json.loads(run('docker', 'network', 'inspect', network_name, capture=True).stdout)[0]
+    if network.get('Driver') != 'bridge':
+        raise RuntimeError('The specified Docker network must use the bridge driver.')
+    subnets = [ipaddress.ip_network(item['Subnet'])
+               for item in network.get('IPAM', {}).get('Config', []) if item.get('Subnet')]
+    subnets = [subnet for subnet in subnets if subnet.version == 4]
+    if not subnets or any(subnet.prefixlen == 0 for subnet in subnets):
+        raise RuntimeError('Docker network must have a bounded IPv4 subnet.')
+    if not host_address:
+        bridge = json.loads(run('docker', 'network', 'inspect', 'bridge', capture=True).stdout)[0]
+        gateways = [item['Gateway'] for item in bridge['IPAM']['Config']
+                    if item.get('Gateway') and ipaddress.ip_address(item['Gateway']).version == 4]
+        if not gateways:
+            raise RuntimeError('Cannot detect host gateway; supply --ssh-host-address.')
+        host_address = gateways[0]
+    host = ipaddress.IPv4Address(host_address)
+    for subnet in subnets:
+        run('ufw', 'allow', 'proto', 'tcp', 'from', subnet, 'to', host,
+            'port', '22', 'comment', 'Orca host SSH')
+    print(f'Allowed SSH from {network_name} to {host}:22. '
+          'If Docker uses a custom host-gateway address, pass --ssh-host-address with that address.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--container-uid', type=int, default=10001)
     parser.add_argument('--container-gid', type=int, default=10001)
+    parser.add_argument('--docker-network', help='Existing client bridge network whose subnet may access host SSH')
+    parser.add_argument('--ssh-host-address', type=ipaddress.IPv4Address,
+                        help='Custom host.docker.internal address; defaults to the Docker bridge gateway')
+    parser.add_argument('--firewall-only', action='store_true', help='Configure UFW without repeating account/SSH setup')
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('Run this script with sudo python3 scripts/setup_host.py')
     if args.container_uid < 1 or args.container_gid < 1:
         parser.error('Container UID and GID must be positive.')
+    if args.firewall_only:
+        if not args.docker_network:
+            parser.error('--firewall-only requires --docker-network.')
+        configure_firewall(args.docker_network, args.ssh_host_address)
+        return
     if not shutil.which('apt-get') or not shutil.which('systemctl'):
         parser.error('This script requires Ubuntu/Debian with systemd.')
 
@@ -113,6 +161,8 @@ def main():
     if result.stdout.strip() != '0':
         raise RuntimeError('Passwordless sudo verification failed.')
 
+    configure_firewall(args.docker_network, args.ssh_host_address)
+
     print('\nHost setup complete. Add these to your existing client .env:\n')
     print(f'''ORCA_EXECUTION_MODE=ssh
 ORCA_SSH_TARGET=orca-run@host.docker.internal
@@ -130,6 +180,6 @@ if __name__ == '__main__':
     os.chdir('/')
     try:
         main()
-    except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
+    except (OSError, subprocess.CalledProcessError, RuntimeError, ValueError, KeyError, IndexError) as error:
         print(f'\nSetup stopped: {error}\nFix the issue and rerun the script.', file=sys.stderr)
         sys.exit(1)
