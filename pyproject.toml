@@ -20,4 +20,4 @@ dependencies = {file = ["requirements.txt"]}
 include = ["orca_app*"]
 
 [tool.setuptools.package-data]
-orca_app = ["templates/*.html", "static/*.css", "static/*.js"]
+orca_app = ["templates/*.html", "static/*.css", "static/*.js", "static/*.svg"]

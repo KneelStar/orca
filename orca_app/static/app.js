@@ -40,15 +40,16 @@ async function load() {
   show('#shortcut-section',isFleet());
   show('#add-shortcut',isAdmin() && isFleet());
   show('#workspace',false);
+  show('#open-workspace',isAdmin() && !isFleet() && !state.selected);
   if (isFleet()) {
     state.shortcuts = await api('/api/shortcuts'); renderShortcuts();
     if (isAdmin()) {
       state.clients = await api('/api/clients');
-      if (!state.clients.some(c=>c.id===state.selected)) state.selected=state.clients[0]?.id || null;
+      if (!state.clients.some(c=>c.id===state.selected)) state.selected=null;
       renderClients();
       await refreshMetrics();
     }
-  } else if (isAdmin()) { state.selected='local'; await refreshMetrics(); }
+  } else if (isAdmin()) { await refreshMetrics(); }
   if (isAdmin() && state.selected) await selectClient(state.selected);
 }
 function renderClients() {
@@ -63,7 +64,7 @@ function renderClients() {
 }
 function renderShortcuts() {
   const items=state.shortcuts.filter(s=>isAdmin()||s.visibility==='shared');
-  $('#shortcuts').innerHTML=items.length?items.map(s=>`<div class="shortcut-shell"><a class="shortcut" aria-label="${escapeHTML(s.name)}" href="${escapeHTML(s.url)}" target="${s.open_in==='same_tab'?'_self':'_blank'}" rel="noopener noreferrer"><span class="shortcut-icon" aria-hidden="true"><span>↗</span><img src="${escapeHTML(new URL('/favicon.ico',s.url).href)}" alt="" referrerpolicy="no-referrer"></span><div class="shortcut-copy"><h3>${escapeHTML(s.name)}${isAdmin()?` <span class="muted">- ${s.visibility==='shared'?'Shared':'Admin only'}</span>`:''}</h3><p class="muted shortcut-url">${escapeHTML(s.url)}</p></div></a>${isAdmin()?`<button class="icon-button edit-control" data-edit-shortcut="${s.id}" aria-label="Edit ${escapeHTML(s.name)}">${pencilIcon}</button>`:''}</div>`).join(''):'<p class="empty">No shortcuts yet.</p>';
+  $('#shortcuts').innerHTML=items.length?items.map(s=>`<div class="shortcut-shell"><a class="shortcut" aria-label="${escapeHTML(s.name)}" href="${escapeHTML(s.url)}" target="${s.open_in==='same_tab'?'_self':'_blank'}" rel="noopener noreferrer"><span class="shortcut-icon" aria-hidden="true"><span>↗</span><img src="${escapeHTML(new URL('/favicon.ico',s.url).href)}" alt="" referrerpolicy="no-referrer"></span><div class="shortcut-copy"><h3>${escapeHTML(s.name)}${isAdmin()?` <span class="muted">- ${s.visibility==='shared'?'Shared':'Admin only'}</span>`:''}</h3><p class="muted shortcut-url" title="${escapeHTML(s.url)}">${escapeHTML(s.url)}</p></div></a>${isAdmin()?`<button class="icon-button edit-control" data-edit-shortcut="${s.id}" aria-label="Edit ${escapeHTML(s.name)}">${pencilIcon}</button>`:''}</div>`).join(''):'<p class="empty">No shortcuts yet.</p>';
   $('#shortcuts').querySelectorAll('img').forEach(img=>{
     const update=()=>{img.hidden=!img.naturalWidth;img.previousElementSibling.hidden=!!img.naturalWidth;};
     img.onload=update;img.onerror=update;if(img.complete && img.naturalWidth)update();
@@ -89,12 +90,12 @@ function renderConnection() {
   $('#client-name').textContent = isFleet() ? c?.name || '' : state.session.client_name;
   const d=m?.data;
   $('#client-address').textContent = [isFleet()?c?.url:null,d?.os].filter(Boolean).join(' · ');
-  $('#connection').textContent = m?.ok?'● Connected':'○ Unavailable';
   show('#work-grid',!!m?.ok);show('#unavailable',!m?.ok);
   $('#unavailable').textContent=m?.error||'Connecting to client…';
   if(!isFleet()&&d)$('#client-address').textContent+=` · CPU ${d.cpu}% · RAM ${d.ram}%`;
 }
 async function selectClient(id) {
+  show('#open-workspace',false);
   state.selected=id;state.job=null;state.historyJob=null;state.historyId='';state.historyRequest++;state.starting=false;state.actions=[];state.generation++;renderActions();
   const generation=state.generation; hideEditors(); clearError();
   $('#output').textContent='Run an action to view its output.';
@@ -146,6 +147,8 @@ function input(label,name,value='',type='text',required=true) {
   return `<label>${label}<input name="${name}" type="${type}" value="${escapeHTML(value)}" ${required?'required':''} autocomplete="${type==='password'?'off':'on'}"></label>`;
 }
 function edit(kind,item=null) {
+  if(kind==='client' && state.selected)closeWorkspace();
+  if(kind==='action')show('#action-confirm',false);
   clearError();const box=$('#'+kind+'-editor');
   if(!box.hidden && box.dataset.item===(item?.id || 'new'))return;
   box.dataset.item=item?.id || 'new';
@@ -174,8 +177,9 @@ function edit(kind,item=null) {
 }
 function showActionInfo(id) {
   const a=state.actions.find(a=>a.id===id);if(!a)return;
+  show('#action-editor',false);
   const box=$('#action-confirm');box.hidden=false;
-  box.innerHTML=`<h3>${escapeHTML(a.name)}</h3><pre>${escapeHTML(a.command)}</pre><p class="muted">Working directory: ${escapeHTML(a.cwd||'Client service working directory')} · Timeout: ${a.timeout}s</p><div class="row"><button data-close="action-confirm">Close</button></div>`;
+  box.innerHTML=`<div class="row"><h3>${escapeHTML(a.name)}</h3><div class="grow"></div><button class="icon-button" data-close="action-confirm" aria-label="Close action details">X</button></div><pre class="action-command">${escapeHTML(a.command)}</pre><dl class="action-metadata"><div><dt>Working directory</dt><dd>${escapeHTML(a.cwd||'Client service working directory')}</dd></div><div><dt>Timeout</dt><dd>Timeout: ${a.timeout}s</dd></div></dl>`;
 }
 async function runAction(id) {
   if(state.starting || state.job?.status==='running')return;
@@ -233,3 +237,15 @@ setInterval(async()=>{
   }catch(e){fail(e);}finally{state.polling=false;}
 },1000);
 load().catch(fail);
+
+function closeWorkspace() {
+  state.selected=null;state.generation++;state.historyRequest++;
+  state.job=null;state.historyJob=null;state.historyId='';state.actions=[];state.starting=false;
+  show('#action-editor',false);show('#action-confirm',false);show('#workspace',false);
+  if(isFleet())renderClients();
+  else show('#open-workspace',true);
+}
+$('#workspace-close').onclick=closeWorkspace;
+$('#open-workspace').onclick=async()=>{
+  try{await refreshMetrics();await selectClient('local');}catch(e){fail(e);}
+};

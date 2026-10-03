@@ -19,9 +19,10 @@
 #orca .action-shell .action-run{flex:1;overflow-wrap:anywhere;border:0;background:transparent}
 #orca .actions .action-shell{gap:0}
 #orca .actions .action-shell .icon-button{display:grid;place-items:center;border:0;background:transparent;width:30px;min-width:30px;padding:6px}
-#orca .shortcut-shell .shortcut{height:auto;min-height:88px}
-#orca .shortcut-copy{min-width:0}
-#orca .shortcut-url{margin-top:5px;overflow-wrap:anywhere}
+#orca .shortcut-shell .shortcut{height:88px;min-height:88px}
+#orca .shortcut-copy{min-width:0;flex:1}
+#orca .shortcut-url{margin-top:5px}
+#orca .shortcut-url,#orca .shortcut-copy h3{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #orca .shortcut-icon{position:relative;width:24px;height:24px;flex:0 0 24px;display:grid;place-items:center;color:var(--o-accent)}
 #orca .shortcut-icon img{position:absolute;inset:0;width:24px;height:24px;object-fit:contain;background:var(--o-panel)}
 @media(pointer:coarse){#orca .actions .action-shell .icon-button{width:44px;min-width:44px;padding:11px}}
@@ -41,3 +42,9 @@ body{box-sizing:border-box;min-height:100vh;min-height:100svh;display:flex;flex-
 #orca #recent-panel{min-height:260px;padding-top:20px}
 #orca .history-note{margin-top:12px}
 @media(max-width:720px){body{justify-content:flex-start}#orca{margin-block:0}}
+
+/* Action metadata is compact and independent of console output sizing. */
+#orca .confirm .action-command{min-height:0;max-height:180px;margin:12px 0;padding:10px 12px;background:var(--o-bg);border-radius:6px;color:var(--o-ink);line-height:1.6}
+#orca .action-metadata{display:flex;flex-wrap:wrap;gap:12px 24px;margin:0;font-size:12px}
+#orca .action-metadata dt{color:var(--o-sub)}
+#orca .action-metadata dd{margin:2px 0 0;overflow-wrap:anywhere}

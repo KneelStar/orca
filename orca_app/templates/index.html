@@ -1,12 +1,13 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Orca</title><link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Orca</title><link rel="icon" type="image/svg+xml" href="/static/favicon.svg"><link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script></head>
 <body><div id="orca"><header><a class="brand" href="/" aria-label="Orca home"><span class="logo" aria-hidden="true">≈</span>orca</a><div class="grow"></div><button id="preview" hidden>Shared view</button><button id="auth-button">Admin login</button></header><main>
 <div id="error" class="error" role="alert" hidden></div>
 <section id="login" class="editor" hidden><h2>Admin login</h2><form id="login-form"><div class="fields"><label>Password<input type="password" name="password" autocomplete="current-password" required></label></div><div class="row"><button class="primary">Sign in</button><button type="button" data-close="login">Cancel</button></div></form></section>
-<div class="section-head"><div><h1 id="page-title">Orca</h1><p id="fleet-summary" class="muted" hidden></p></div><button class="primary" id="add-client" hidden>+ Add client</button></div>
+<div class="section-head"><div><h1 id="page-title">Orca</h1><p id="fleet-summary" class="muted" hidden></p></div><button id="open-workspace" hidden>Show client details</button><button class="primary" id="add-client" hidden>+ Add client</button></div>
 <section id="fleet" hidden><div id="client-editor" class="editor" hidden></div><div class="servers" id="servers"></div></section>
 <section class="workspace" id="workspace" hidden>
-  <div class="workspace-head"><div><h2 id="client-name"></h2><p class="muted" id="client-address"></p></div><div class="grow"></div><span class="badge" id="connection">Connecting</span></div>
+  <div class="workspace-head"><div><h2 id="client-name"></h2><p class="muted" id="client-address"></p></div><div class="grow"></div><button class="icon-button" id="workspace-close" aria-label="Close client details">X</button></div>
+  <div id="workspace-body">
   <div id="work-grid" class="work-grid">
     <div class="controls">
       <div class="row"><h3>Quick actions</h3><div class="grow"></div><button class="primary" id="add-action">+ Add action</button></div>
@@ -30,6 +31,7 @@
     </div>
   </div>
   <div id="unavailable" class="console" hidden></div>
+  </div>
 </section>
 <section class="bottom" id="shortcut-section" hidden><div class="section-head"><h2>Shortcuts</h2><button class="primary" id="add-shortcut" hidden>+ Add shortcut</button></div><div id="shortcut-editor" class="editor" hidden></div><div class="shortcuts" id="shortcuts"></div></section>
 </main></div></body></html>
