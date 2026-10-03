@@ -1,6 +1,6 @@
 'use strict';
 const $ = selector => document.querySelector(selector);
-const state = {session:null, preview:false, clients:[], shortcuts:[], metrics:new Map(), selected:null, actions:[], job:null, historyJob:null, historyId:'', historyRequest:0, starting:false, generation:0, polling:false};
+const state = {session:null, preview:false, clients:[], shortcuts:[], metrics:new Map(), selected:null, actions:[], job:null, historyJob:null, historyId:'', historyRequest:0, starting:false, quickCleared:false, generation:0, polling:false};
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pencilIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l11-11-4-4L4 16v4Zm13.5-16.5 3 3-1.5 1.5-3-3 1.5-1.5Z"/></svg>';
 const infoIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 10h2v7h-2v-7Zm0-3h2v2h-2V7Zm1-5a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z"/></svg>';
@@ -96,11 +96,12 @@ function renderConnection() {
 }
 async function selectClient(id) {
   show('#open-workspace',false);
+  state.quickCleared=false;
   state.selected=id;state.job=null;state.historyJob=null;state.historyId='';state.historyRequest++;state.starting=false;state.actions=[];state.generation++;renderActions();
   const generation=state.generation; hideEditors(); clearError();
   $('#output').textContent='Run an action to view its output.';
   $('#job-history').innerHTML='<option value="">No actions yet</option>';
-  $('#job-detail').textContent='';show('#job-detail',false);
+  $('#job-detail').textContent='';show('#job-detail',false);show('#clear-output',false);
   $('#history-output').textContent='Select a run to view its output.';
   $('#history-detail').textContent='';show('#history-detail',false);
   if(isFleet())renderClients();renderConnection();show('#workspace',true);
@@ -137,11 +138,12 @@ async function selectJob(id) {
   }
 }
 function renderJob(j=state.job,history=false) {
-  if(!j)return;
+  if(!j || (!history && state.quickCleared))return;
   $(history?'#history-output':'#output').textContent=j.output || (j.status==='running'?'Waiting for command output…':'No output.');
   const detail=history?'#history-detail':'#job-detail';
   $(detail).textContent=j.name+' · '+j.status.replace('_',' ')+(j.exit_code===null?'':` · Exit ${j.exit_code}`);
   show(detail,true);
+  if(!history)show('#clear-output',true);
 }
 function input(label,name,value='',type='text',required=true) {
   return `<label>${label}<input name="${name}" type="${type}" value="${escapeHTML(value)}" ${required?'required':''} autocomplete="${type==='password'?'off':'on'}"></label>`;
@@ -189,7 +191,7 @@ async function runAction(id) {
   state.starting=true;renderActions();
   try{
     const job=await api(path,'POST',{});if(generation!==state.generation)return;
-    state.job=job;show('#action-confirm',false);setConsoleTab('quick');renderJob();renderActions();
+    state.quickCleared=false;state.job=job;show('#action-confirm',false);setConsoleTab('quick');renderJob();renderActions();
     const jobs=await api(remotePath('jobs'));if(generation!==state.generation)return;
     renderHistory(jobs);renderJob();
   } catch(e){if(generation===state.generation)fail(e);}
@@ -216,6 +218,11 @@ $('#login-form').onsubmit=async event=>{
   try{state.session=await api('/api/login','POST',Object.fromEntries(new FormData(event.target)));event.target.reset();show('#login',false);await load();}catch(e){fail(e);}finally{button.disabled=false;}
 };
 $('#preview').onclick=()=>{state.preview=!state.preview;state.generation++;clearError();load().catch(fail);};
+$('#clear-output').onclick=()=>{
+  state.quickCleared=true;
+  $('#output').textContent='Run an action to view its output.';
+  $('#job-detail').textContent='';show('#job-detail',false);show('#clear-output',false);
+};
 $('#quick-tab').onclick=()=>setConsoleTab('quick');
 $('#recent-tab').onclick=()=>setConsoleTab('recent');
 $('#job-history').onchange=event=>selectJob(event.target.value);

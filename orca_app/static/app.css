@@ -48,3 +48,6 @@ body{box-sizing:border-box;min-height:100vh;min-height:100svh;display:flex;flex-
 #orca .action-metadata{display:flex;flex-wrap:wrap;gap:12px 24px;margin:0;font-size:12px}
 #orca .action-metadata dt{color:var(--o-sub)}
 #orca .action-metadata dd{margin:2px 0 0;overflow-wrap:anywhere}
+
+#orca .quick-footer{display:flex;align-items:center;gap:12px}
+#orca .quick-footer #clear-output{margin-left:auto;flex-shrink:0}
