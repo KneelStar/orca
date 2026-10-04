@@ -1,6 +1,6 @@
 services:
   orchestrator:
-    image: ${ORCA_IMAGE:-orca:0.2.1}
+    image: ${ORCA_IMAGE:-orca:0.2.3}
     build: .
     restart: unless-stopped
     ports:

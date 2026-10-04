@@ -2,7 +2,7 @@
 
 Orca is the central dashboard. **Orca Client** is an independent server manager installed on each machine. They share a Python package and image, but run as separate services with separate settings and databases. Clients never communicate with one another.
 
-Version 0.2.1 includes:
+Version 0.2.3 includes:
 
 - Single-admin password login, with server-side authorization and CSRF protection.
 - Saved clients, shared/admin-only URL shortcuts, and configurable page headings.
@@ -27,18 +27,18 @@ Python 3.10+, Flask, Waitress, SQLite, psutil, and plain HTML/CSS/JavaScript. No
 The orchestrator and client use the same image; `ORCA_ROLE` selects the service. Build and export it on a machine with Docker access:
 
 ```sh
-docker build -t orca:0.2.1 .
-docker save orca:0.2.1 | gzip > orca-0.2.1.tar.gz
+docker build -t orca:0.2.3 .
+docker save orca:0.2.3 | gzip > orca-0.2.3.tar.gz
 ```
 
-Copy `orca-0.2.1.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
+Copy `orca-0.2.3.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
 
 ```sh
-gunzip -c orca-0.2.1.tar.gz | docker load
+gunzip -c orca-0.2.3.tar.gz | docker load
 docker compose up -d
 ```
 
-The Compose files use `orca:0.2.1` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
+The Compose files use `orca:0.2.3` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
 
 ## Docker: Orca orchestrator
 
@@ -100,7 +100,7 @@ The script installs and enables the SSH server, installs Python/venv and sudo, c
 After successful setup, add or update these values in your existing client `.env`, preserving its passwords, session secret, client token, and port:
 
 ```dotenv
-ORCA_IMAGE=orca:0.2.1
+ORCA_IMAGE=orca:0.2.3
 ORCA_EXECUTION_MODE=ssh
 ORCA_SSH_TARGET=orca-run@host.docker.internal
 ORCA_SSH_PORT=22
@@ -190,7 +190,7 @@ Alternatively, set `ORCA_ROLE=orchestrator` or `ORCA_ROLE=client` and run `pytho
 | `ORCA_BIND_IP`        | 0.0.0.0           | Compose published interface; use `127.0.0.1` for localhost-only access |
 | `ORCA_DATABASE`       | data/ROLE.sqlite3 | Native database path                                                   |
 | `ORCA_DOCKER_COMMAND` | docker            | Docker CLI prefix on the execution target, e.g. `sudo -n docker`       |
-| `ORCA_DOCKER_CONTEXT` | current context   | Optional Docker context for discovery and generated commands          |
+| `ORCA_DOCKER_CONTEXT` | current context   | Optional Docker context for discovery and generated commands           |
 | `ORCA_EXECUTION_MODE` | local             | Client command and metrics target; optional ssh                        |
 
 Protect the environment files, databases, and backups: the orchestrator database contains client credentials and clients retain command output. Public shortcuts control visibility in Orca, not authorization at their destination. When using `0.0.0.0`, network access is controlled by your firewall, Tailscale policies, and bind address; Orca does not itself enroll devices into Tailscale. For browser HTTPS, terminate TLS through your existing reverse proxy or Tailscale Serve and enable secure cookies.

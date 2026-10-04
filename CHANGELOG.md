@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Styling changes in defined actions, and docker buttons
+
 ## 0.2.2
 
 - Fix Docker updates and lifecycle controls over SSH failing before execution because job metadata and the SSH transport both supplied `kind`.

@@ -17,7 +17,7 @@
 #orca .edit-control{position:absolute;top:10px;right:10px;z-index:1}
 #orca .actions .action-shell{display:flex;gap:4px;min-width:0;border:1px solid var(--o-line);border-radius:8px;background:var(--o-panel);padding:3px}
 #orca .action-shell .action-run{flex:1;overflow-wrap:anywhere;border:0;background:transparent}
-#orca .actions .action-shell{gap:0}
+#orca .actions .action-shell{gap:0;align-items:center}
 #orca .actions .action-shell .icon-button{display:grid;place-items:center;border:0;background:transparent;width:30px;min-width:30px;padding:6px}
 #orca .shortcut-shell .shortcut{height:88px;min-height:88px}
 #orca .shortcut-copy{min-width:0;flex:1}
@@ -82,7 +82,7 @@ body{box-sizing:border-box;min-height:100vh;min-height:100svh;display:flex;flex-
 #orca .docker-name small{display:block;margin-top:3px}
 #orca .docker-stat{white-space:nowrap;font-variant-numeric:tabular-nums}
 #orca .docker-controls{display:flex;gap:6px;width:max-content}
-#orca .docker-controls .icon-button{width:32px;min-width:32px;height:32px;padding:7px}
+#orca .docker-controls .icon-button{width:32px;min-width:32px;height:32px;padding:0}
 #orca .update-group{display:inline-flex;margin-left:6px}
 #orca .update-group button:first-child{border-radius:8px 0 0 8px}
 #orca .update-group button:last-child{border-radius:0 8px 8px 0;border-left:0}
