@@ -122,6 +122,27 @@ class DockerTests(unittest.TestCase):
         self.assertEqual(recipe_for(self.fake,{'com.docker.swarm.service.name':'stack_web'})['command'],'')
         self.assertEqual(recipe_for(self.fake,{})['command'],'')
 
+    def test_protected_compose_paths_do_not_break_discovery_or_image_checks(self):
+        self.fake.rows[1]['Config']['Labels']['com.docker.compose.project']='other'
+        for method, protected in [('is_dir', self.folder),
+                                  ('is_file', self.folder/'custom file.yaml'),
+                                  ('is_file', self.folder/'production.env')]:
+            with self.subTest(path=protected):
+                original=getattr(Path,method)
+                def check_path(path):
+                    if path == protected:
+                        raise PermissionError(13, 'Permission denied', str(path))
+                    return original(path)
+                self.service.invalidate()
+                with patch.object(Path,method,autospec=True,side_effect=check_path):
+                    response=self.client.get('/api/host/docker',headers=self.headers)
+                    self.assertEqual(response.status_code,200)
+                    self.assertEqual(len(response.json['containers']),2)
+                    row=next(row for row in response.json['containers'] if row['name']=='web')
+                    self.assertFalse(row['update_enabled'])
+                    self.assertIn(str(protected),row['recipe']['reason'])
+                    self.assertEqual(len(check_images(self.fake)['results']),2)
+
     def test_manual_recipe_shared_and_survives_recreation_and_confirmation_change(self):
         self.client.get('/api/host/docker',headers=self.headers)
         recipe=dict(command='printf updated',cwd=str(self.folder),timeout=5)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orca-server-manager"
-version = "0.2.0"
+version = "0.2.1"
 description = "Orca orchestrator and independent Orca Client"
 requires-python = ">=3.10"
 dynamic = ["dependencies"]

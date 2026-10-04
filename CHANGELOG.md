@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+- Fix Docker discovery failing with `Permission denied` when the execution user cannot inspect an original Compose directory, Compose file, or environment file.
+- Keep the Docker table and image checks available. Disable only automatic update-command generation for the affected project, with an explanation in Edit; saved manual commands remain available.
+- Add regression coverage for inaccessible deployment paths.
+
+Upgrade the client image to `orca:0.2.1` and preserve the named volume mounted at `/data`. No database migration is required. The 0.2.0 orchestrator is compatible with this client patch. Ensure the deployed client Compose file forwards `ORCA_DOCKER_COMMAND` and `ORCA_DOCKER_CONTEXT`; changing `.env` alone does not add missing environment entries to a running container.
+
 ## 0.2.0
 
 - Add Actions and Docker tabs to client details, with Orca actions, Defined actions, and shared Action output/history.

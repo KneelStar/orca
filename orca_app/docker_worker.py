@@ -27,14 +27,20 @@ def recipe_for(docker, labels):
     reason = ''
     argv = docker.prefix + ['compose', '--project-name', project]
     paths = files.split(',') if files else []
-    if not project:
-        reason = 'Provide an update command for this container or its deployment manager.'
-    elif not cwd or not Path(cwd).is_absolute() or not Path(cwd).is_dir():
-        reason = 'The original Compose working directory is unavailable on the execution target.'
-    elif not paths or any(not p or not Path(p).is_absolute() or not Path(p).is_file() for p in paths):
-        reason = 'The original Compose files are unavailable on the execution target.'
-    elif env and any(not p or not Path(p).is_absolute() or not Path(p).is_file() for p in env.split(',')):
-        reason = 'The original environment files are unavailable on the execution target.'
+    try:
+        if not project:
+            reason = 'Provide an update command for this container or its deployment manager.'
+        elif not cwd or not Path(cwd).is_absolute() or not Path(cwd).is_dir():
+            reason = 'The original Compose working directory is unavailable on the execution target.'
+        elif not paths or any(not p or not Path(p).is_absolute() or not Path(p).is_file() for p in paths):
+            reason = 'The original Compose files are unavailable on the execution target.'
+        elif env and any(not p or not Path(p).is_absolute() or not Path(p).is_file() for p in env.split(',')):
+            reason = 'The original environment files are unavailable on the execution target.'
+    except OSError as error:
+        # These checks run as the execution user, even when Docker itself uses sudo.
+        # A protected deployment path must not prevent discovery of other containers.
+        path = error.filename or cwd
+        reason = f'The original Compose configuration cannot be accessed by the execution user: {path}. Provide an update command and an accessible working directory.'
     if labels.get('com.docker.swarm.service.name'):
         reason = 'Provide an update command for the Swarm service or stack.'
     argv += ['--project-directory', cwd]

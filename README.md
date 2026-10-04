@@ -2,7 +2,7 @@
 
 Orca is the central dashboard. **Orca Client** is an independent server manager installed on each machine. They share a Python package and image, but run as separate services with separate settings and databases. Clients never communicate with one another.
 
-Version 0.2.0 includes:
+Version 0.2.1 includes:
 
 - Single-admin password login, with server-side authorization and CSRF protection.
 - Saved clients, shared/admin-only URL shortcuts, and configurable page headings.
@@ -27,18 +27,18 @@ Python 3.10+, Flask, Waitress, SQLite, psutil, and plain HTML/CSS/JavaScript. No
 The orchestrator and client use the same image; `ORCA_ROLE` selects the service. Build and export it on a machine with Docker access:
 
 ```sh
-docker build -t orca:0.2.0 .
-docker save orca:0.2.0 | gzip > orca-0.2.0.tar.gz
+docker build -t orca:0.2.1 .
+docker save orca:0.2.1 | gzip > orca-0.2.1.tar.gz
 ```
 
-Copy `orca-0.2.0.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
+Copy `orca-0.2.1.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
 
 ```sh
-gunzip -c orca-0.2.0.tar.gz | docker load
+gunzip -c orca-0.2.1.tar.gz | docker load
 docker compose up -d
 ```
 
-The Compose files use `orca:0.2.0` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
+The Compose files use `orca:0.2.1` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
 
 ## Docker: Orca orchestrator
 
@@ -100,7 +100,7 @@ The script installs and enables the SSH server, installs Python/venv and sudo, c
 After successful setup, add or update these values in your existing client `.env`, preserving its passwords, session secret, client token, and port:
 
 ```dotenv
-ORCA_IMAGE=orca:0.2.0
+ORCA_IMAGE=orca:0.2.1
 ORCA_EXECUTION_MODE=ssh
 ORCA_SSH_TARGET=orca-run@host.docker.internal
 ORCA_SSH_PORT=22
@@ -143,7 +143,7 @@ Install Docker CLI on the execution target, Compose v2 for generated updates, an
 
 The client database stores registry targets, check times, errors, update commands, and execution history. Green update icons mean the row's installed image differs from its last successfully checked registry target. Normal icons can mean no known difference, no successful check, or a pinned image. A failed registry refresh retains the previous successful target and records the failure in output. Reloading or recreating a container compares its actual image with that saved target, so installed updates clear naturally. The orchestrator proxies these requests and does not store this Docker state.
 
-For Compose containers, Orca uses project, working-directory, ordered Compose-file, and environment-file labels to suggest a whole-project `pull && up -d` command. Files must exist on the execution target. The Update/Edit button group shares one saved command across the project's rows, and manual edits survive recreation. Missing metadata, standalone containers, and Swarm services need a manually supplied deployment command. Swarm task lifecycle controls are disabled because the deployment manager owns those tasks.
+For Compose containers, Orca uses project, working-directory, ordered Compose-file, and environment-file labels to suggest a whole-project `pull && up -d` command. Files must exist on the execution target. Inaccessible Compose directories/files disable automatic command generation for that project; container discovery and image checks remain available. Filesystem checks use the execution account, even when Docker commands use sudo. The Update/Edit button group shares one saved command across the project's rows, and manual edits survive recreation. Missing metadata, standalone containers, and Swarm services need a manually supplied deployment command. Swarm task lifecycle controls are disabled because the deployment manager owns those tasks.
 
 Review generated commands for configurations whose original launch environment cannot be reconstructed from Docker labels: exported variables, selected Compose profiles, launcher-specific options, and Portainer/Git-managed deployments. Use the owning manager's deployment command where appropriate. Orca does not recover an arbitrary original `docker run` command. Paths containing ambiguous comma separators may require manual configuration. For named profiles, add the original `--profile` options in Edit before updating. File existence does not guarantee the execution account can read a file; errors remain visible in command output.
 
