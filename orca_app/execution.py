@@ -80,7 +80,10 @@ class Execution:
 
     def command(self, action):
         if self.mode == 'ssh':
-            return dict(args=self.ssh(dict(kind='action', **action)), shell=False, cwd=None)
+            # Job metadata has its own kind; only execution fields belong in the SSH payload.
+            payload = dict(kind='action', command=action['command'],
+                           cwd=action.get('cwd') or '', timeout=action['timeout'])
+            return dict(args=self.ssh(payload), shell=False, cwd=None)
         return dict(args=action['command'], shell=True, cwd=action.get('cwd') or None)
 
     def metrics(self):

@@ -192,6 +192,36 @@ class DockerTests(unittest.TestCase):
         self.assertEqual(job['output'],'firstlast');self.assertEqual(job['command'],recipe['command'])
         self.assertEqual(self.client.post(self.base+'/update',headers=self.headers,json={'confirmation':confirmation['id']}).status_code,400)
 
+    def test_ssh_updates_and_lifecycle_jobs_keep_metadata_separate_from_transport_kind(self):
+        execution=self.service.execution
+        execution.mode='ssh'
+        execution.python=sys.executable
+        def local_ssh(payload):
+            self.assertEqual(payload['kind'],'action')
+            return shlex.split(Execution.ssh(execution,payload)[-1])
+        # Run the exact remote action payload locally; never contact an SSH server or Docker daemon.
+        with patch.object(execution,'ssh',side_effect=local_ssh):
+            recipe=dict(command='printf ssh-update',cwd=str(self.folder),timeout=5)
+            self.client.put(self.base+'/recipe',headers=self.headers,json=recipe)
+            confirmation=self.client.post(self.base+'/prepare',headers=self.headers,json={}).json
+            response=self.client.post(self.base+'/update',headers=self.headers,json={'confirmation':confirmation['id']})
+            self.assertEqual(response.status_code,202)
+            job=self.wait_job(response.json)
+            self.assertEqual(job['status'],'succeeded')
+            self.assertEqual(job['kind'],'docker-update')
+            self.assertEqual(job['output'],'ssh-update')
+            self.assertEqual(job['command'],recipe['command'])
+            executable=self.folder/'fake-docker-control'
+            executable.write_text('#!'+sys.executable+'\nimport sys\nprint(" ".join(sys.argv[1:]))\n')
+            executable.chmod(0o700)
+            execution.docker_prefix=[str(executable)]
+            response=self.client.post(self.base+'/control',headers=self.headers,json={'operation':'restart'})
+            self.assertEqual(response.status_code,202)
+            job=self.wait_job(response.json)
+            self.assertEqual(job['status'],'succeeded')
+            self.assertEqual(job['kind'],'docker-control')
+            self.assertEqual(job['output'],'container restart '+'a'*64+'\n')
+
     def test_lifecycle_rechecks_state_and_uses_fixed_container_id(self):
         with patch.object(self.service.jobs,'start',return_value={'id':'job'}) as start:
             self.assertEqual(self.client.post(self.base+'/control',headers=self.headers,json={'operation':'pause'}).status_code,202)

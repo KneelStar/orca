@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Fix Docker updates and lifecycle controls over SSH failing before execution because job metadata and the SSH transport both supplied `kind`.
+
 ## 0.2.1
 
 - Fix Docker discovery failing with `Permission denied` when the execution user cannot inspect an original Compose directory, Compose file, or environment file.
