@@ -113,10 +113,10 @@ async function startDockerJob(path,payload,popup=false){
   try{
     const job=await api(path,'POST',payload);
     if(generation!==state.generation)return;
-    state.job=job;state.quickCleared=false;dockerState.activeJob=job.id;renderJob();setConsoleTab('quick');
+    state.job=job;state.quickCleared=false;dockerState.activeJob=job.id;renderJob();if(!popup)setConsoleTab('quick');
     if(popup){
       dockerState.dialogJob=job.id;
-      $('#docker-dialog-body').innerHTML='<p id="docker-progress-status" role="status"></p><pre id="docker-progress-output"></pre><p class="muted">Output is also available in Action output and Recent actions. Container health appears in the Docker table.</p>';
+      $('#docker-dialog-body').innerHTML='<p id="docker-progress-status" role="status"></p><pre id="docker-progress-output"></pre><p class="muted">View this run result in Recent actions. Container health appears in the Docker table.</p>';
       renderDockerProgress();
     }
     const jobs=await api(remotePath('jobs'));if(generation===state.generation)renderHistory(jobs);

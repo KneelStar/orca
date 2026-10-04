@@ -43,7 +43,9 @@ class FakeDocker:
         self.calls.append(args)
         if args[:1] == ('ps',):
             assert '--all' in args
-            return '\n'.join(row['Id'] for row in self.rows)
+            project = args[args.index('--filter')+1].split('=', 2)[2] if '--filter' in args else None
+            return '\n'.join(row['Id'] for row in self.rows if project is None or
+                             row['Config']['Labels'].get('com.docker.compose.project') == project)
         if args[0] == 'stats':
             return '\n'.join(json.dumps(dict(ID=row['Id'], CPUPerc='1.25%', MemUsage='12MiB / 8GiB')) for row in self.rows)
         raise AssertionError(args)
@@ -76,12 +78,25 @@ class DockerTests(unittest.TestCase):
         self.service=self.app.extensions['docker'];self.store=self.app.extensions['store']
         self.client=self.app.test_client();self.headers={'Authorization':'Bearer '+'t'*48}
         self.query=patch.object(self.service.execution,'docker_query',side_effect=lambda op,**kw:
-            check_images(self.fake) if op=='check' else inventory(self.fake))
+            check_images(self.fake) if op=='check' else inventory(self.fake, **kw))
         self.query.start()
         self.base='/api/host/docker/'+'a'*64
 
     def tearDown(self):
         self.query.stop();self.env.stop();self.temp.cleanup()
+
+    def test_confirmation_checks_only_project_without_stats_or_images(self):
+        unrelated = copy.deepcopy(self.fake.rows[0])
+        unrelated['Id'] = 'f' * 64
+        unrelated['Config']['Labels']['com.docker.compose.project'] = 'other'
+        self.fake.rows.append(unrelated)
+        response = self.client.post(self.base+'/prepare', headers=self.headers, json={})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(any('--filter' in call for call in self.fake.calls))
+        self.assertFalse(any(call[0] == 'stats' or call[:2] == ('image', 'inspect') for call in self.fake.calls))
+        self.assertFalse(any(unrelated['Id'] in call for call in self.fake.calls))
+        self.fake.rows[1]['Config']['Labels']['com.docker.compose.project.config_files'] = '/changed.yaml'
+        self.assertEqual(self.client.post(self.base+'/prepare', headers=self.headers, json={}).status_code, 400)
 
     def wait_job(self,job):
         for _ in range(200):

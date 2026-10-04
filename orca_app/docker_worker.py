@@ -55,11 +55,25 @@ def recipe_for(docker, labels):
     return dict(command=command, cwd=cwd, timeout=3600, reason=reason)
 
 
-def inventory(docker, self_id='', stats=True, self_token_hash=''):
+def inventory(docker, self_id='', stats=True, self_token_hash='', identifier=None):
+    focused = bool(identifier)
     endpoint = docker.json('info', '--format', '{{json .ID}}')
     if not endpoint:
         raise RuntimeError('Docker daemon identity is unavailable.')
-    ids = docker.text('ps', '--all', '--quiet', '--no-trunc').split()
+    selected = None
+    if identifier:
+        matches = docker.json('container', 'inspect', identifier)
+        selected = next((c for c in matches if c['Id'] == identifier), None)
+        if selected is None:
+            return dict(containers=[], warnings=[], endpoint=endpoint)
+        project = (selected.get('Config', {}).get('Labels') or {}).get('com.docker.compose.project')
+        ids = docker.text('ps', '--all', '--quiet', '--no-trunc', '--filter',
+                          'label=com.docker.compose.project=' + project).split() if project else [identifier]
+        if identifier not in ids:
+            ids.append(identifier)
+        stats = False
+    else:
+        ids = docker.text('ps', '--all', '--quiet', '--no-trunc').split()
     containers = []
     warnings = []
     # Inspect in batches, retry individually if a container disappears during discovery.
@@ -106,12 +120,13 @@ def inventory(docker, self_id='', stats=True, self_token_hash=''):
         platform_error = ''
         try:
             current = container['Image']
-            if current not in images:
+            if not focused and current not in images:
                 images[current] = docker.json('image', 'inspect', current)[0]
-            image = images[current]
-            platform = [image.get('Os'), image.get('Architecture'), image.get('Variant', ''), image.get('OsVersion', '')]
-            if not all(platform[:2]):
-                raise RuntimeError('Image platform is unavailable.')
+            if not focused:
+                image = images[current]
+                platform = [image.get('Os'), image.get('Architecture'), image.get('Variant', ''), image.get('OsVersion', '')]
+                if not all(platform[:2]):
+                    raise RuntimeError('Image platform is unavailable.')
         except (RuntimeError, KeyError) as error:
             platform = None
             platform_error = str(error)
@@ -169,7 +184,7 @@ def worker_main(payload):
     docker = Docker(payload.get('context'), payload.get('command'))
     try:
         if payload['operation'] == 'inventory':
-            result = inventory(docker, payload.get('self_id', ''), payload.get('stats', True), payload.get('self_token_hash', ''))
+            result = inventory(docker, payload.get('self_id', ''), payload.get('stats', True), payload.get('self_token_hash', ''), payload.get('identifier'))
         elif payload['operation'] == 'check':
             result = check_images(docker, payload.get('self_id', ''))
         else:

@@ -24,13 +24,18 @@ class DockerService:
         with self.lock:
             self.cached_at = 0
 
-    def listing(self, fresh=False):
+    def listing(self, fresh=False, identifier=None):
         with self.lock:
-            if fresh or self.cached is None or time.monotonic() - self.cached_at > 3:
+            if identifier:
+                data = self.execution.docker_query('inventory', identifier=identifier)
+            elif fresh or self.cached is None or time.monotonic() - self.cached_at > 3:
                 self.cached = self.execution.docker_query('inventory')
                 self.cached_at = time.monotonic()
+                data = self.cached
+            else:
+                data = self.cached
             rows = []
-            for original in self.cached['containers']:
+            for original in data['containers']:
                 row = original.copy()
                 recipe = self.store.get('docker-recipes', row['group'])
                 if recipe is None:
@@ -43,10 +48,10 @@ class DockerService:
                 row['update_enabled'] = bool(recipe.get('command')) and not row['self_update']
                 row.pop('generated', None)
                 rows.append(row)
-            return dict(containers=rows, warnings=self.cached['warnings'], active_job=self.jobs.active)
+            return dict(containers=rows, warnings=data['warnings'], active_job=self.jobs.active)
 
     def container(self, identifier, fresh=False):
-        row = next((row for row in self.listing(fresh)['containers'] if row['id'] == identifier), None)
+        row = next((row for row in self.listing(fresh, identifier=identifier if fresh else None)['containers'] if row['id'] == identifier), None)
         if not row:
             raise ValueError('Container no longer exists. Refresh the Docker table.')
         return row

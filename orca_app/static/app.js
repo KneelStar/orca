@@ -148,7 +148,7 @@ async function selectJob(id) {
   }
 }
 function renderJob(j=state.job,history=false) {
-  if(!j || (!history && state.quickCleared))return;
+  if(!j || (!history && (state.quickCleared || j.kind==='docker-update')))return;
   $(history?'#history-output':'#output').textContent=j.output || (j.status==='running'?'Waiting for command output…':'No output.');
   const detail=history?'#history-detail':'#job-detail';
   $(detail).textContent=j.name+' · '+j.status.replace('_',' ')+(j.exit_code===null?'':` · Exit ${j.exit_code}`);

@@ -60,6 +60,8 @@ const assert=require('node:assert/strict');
  assert.equal(await page.getByRole('button',{name:'Stop immich-redis',exact:true}).isDisabled(),true);
  await page.waitForFunction(()=>document.querySelector('#docker-progress-status')?.textContent==='Update command completed.');
  assert.match(await page.locator('#docker-progress-output').textContent(),/project complete/);
+ assert.match(await page.locator('#docker-dialog-body').textContent(),/View this run result in Recent actions/);
+ assert.doesNotMatch(await page.locator('#output').textContent(),/updating project|project complete/);
  await page.getByRole('button',{name:'Close Docker dialog',exact:true}).click();
  await page.waitForFunction(()=>!document.querySelector('[aria-label="Update immich-server"]').classList.contains('update-available'));
  // The shared manual recipe survives the fixture's container recreation.

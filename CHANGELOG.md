@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Improved update popup loading time.
+
 ## 0.2.3
 
 - Styling changes in defined actions, and docker buttons

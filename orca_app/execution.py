@@ -107,12 +107,12 @@ class Execution:
         data['metrics_scope'] = 'Container-visible system metrics' if self.in_container and self.mode == 'local' else 'Host metrics'
         return data
 
-    def docker_query(self, operation, timeout=45):
+    def docker_query(self, operation, timeout=45, identifier=None):
         # Bundle the read-only worker so SSH hosts need Python and Docker, not Orca installed.
         directory = Path(__file__).parent
         source = (directory / 'image_updates.py').read_text() + '\n' + (directory / 'docker_worker.py').read_text().replace(
             'from .image_updates import Docker, registry_image_id', '')
-        payload = dict(operation=operation, command=self.docker_prefix,
+        payload = dict(operation=operation, command=self.docker_prefix, identifier=identifier,
                        self_id=os.getenv('HOSTNAME', '') if self.in_container else '',
                        self_token_hash=getattr(self, 'self_token_hash', ''))
         source += '\nworker_main(' + repr(payload) + ')\n'
