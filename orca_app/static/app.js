@@ -1,7 +1,7 @@
 'use strict';
 const $ = selector => document.querySelector(selector);
 let reordering=null;
-const state = {session:null, preview:false, clients:[], shortcuts:[], metrics:new Map(), selected:null, actions:[], job:null, historyJob:null, historyId:'', historyRequest:0, starting:false, quickCleared:false, generation:0, polling:false};
+const state = {session:null, preview:false, clients:[], shortcuts:[], metrics:new Map(), selected:null, actions:[], orcaActions:[], job:null, historyJob:null, historyId:'', historyRequest:0, starting:false, quickCleared:false, generation:0, polling:false};
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pencilIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l11-11-4-4L4 16v4Zm13.5-16.5 3 3-1.5 1.5-3-3 1.5-1.5Z"/></svg>';
 const infoIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 10h2v7h-2v-7Zm0-3h2v2h-2V7Zm1-5a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z"/></svg>';
@@ -32,6 +32,7 @@ async function load() {
   state.session = await api('/api/session');
   if (!state.session.admin) state.preview = false;
   hideEditors();
+  resetDocker();
   $('#page-title').textContent = isAdmin() ? (isFleet()?state.session.admin_title:state.session.client_name) : state.session.public_title;
   document.title = $('#page-title').textContent+' · Orca';
   $('#auth-button').textContent = state.session.admin ? 'Sign out' : 'Admin login';
@@ -78,7 +79,7 @@ function renderShortcuts() {
 async function refreshMetrics() {
   if (!isAdmin()) return;
   const generation=state.generation;
-  const wasUnavailable=state.metrics.get(state.selected)?.ok===false;
+  const wasUnavailable=state.metrics.get(state.selected)?.ok!==true;
   const clients=isFleet()?state.clients:[{id:'local'}];
   await Promise.all(clients.map(async c=>{
     try { const d=await api(isFleet()?'/api/clients/'+c.id+'/remote/metrics':'/api/host/metrics'); if(generation===state.generation)state.metrics.set(c.id,{ok:true,data:d}); }
@@ -95,13 +96,14 @@ function renderConnection() {
   $('#client-name').textContent = isFleet() ? c?.name || '' : state.session.client_name;
   const d=m?.data;
   $('#client-address').textContent = [isFleet()?c?.url:null,d?.os].filter(Boolean).join(' · ');
-  show('#work-grid',!!m?.ok);show('#unavailable',!m?.ok);
+  show('#workspace-content',!!m?.ok);show('#unavailable',!m?.ok);
   $('#unavailable').textContent=m?.error||'Connecting to client…';
   if(!isFleet()&&d)$('#client-address').textContent+=` · CPU ${d.cpu}% · RAM ${d.ram}%`;
 }
 async function selectClient(id) {
   show('#open-workspace',false);
   state.quickCleared=false;
+  resetDocker();
   state.selected=id;state.job=null;state.historyJob=null;state.historyId='';state.historyRequest++;state.starting=false;state.actions=[];state.generation++;renderActions();
   const generation=state.generation; hideEditors(); clearError();
   $('#output').textContent='Run an action to view its output.';
@@ -111,9 +113,9 @@ async function selectClient(id) {
   $('#history-detail').textContent='';show('#history-detail',false);
   if(isFleet())renderClients();renderConnection();show('#workspace',true);
   if(!state.metrics.get(id)?.ok)return;
-  const [actions,jobs]=await Promise.all([api(remotePath('actions')),api(remotePath('jobs'))]);
+  const [actions,jobs,orcaActions]=await Promise.all([api(remotePath('actions')),api(remotePath('jobs')),api(remotePath('orca-actions'))]);
   if(generation!==state.generation)return;
-  state.actions=actions;renderActions();renderHistory(jobs);
+  state.actions=actions;state.orcaActions=orcaActions;renderActions();renderHistory(jobs);
   const running=jobs.find(j=>j.status==='running');
   if(running){
     const job=await api(remotePath('jobs/'+running.id));
@@ -121,8 +123,10 @@ async function selectClient(id) {
   }
 }
 function renderActions() {
-  if(reordering?.kind==='actions')return;
+  if(['actions','orcaActions'].includes(reordering?.kind))return;
   const running=state.starting || state.job?.status==='running';
+  $('#orca-actions').innerHTML=state.orcaActions.map(a=>`<div class="action-shell" data-item-id="${a.id}">${dragHandle('orcaActions',a)}<button class="action-run" data-run="${a.id}" ${running?'disabled':''}>${escapeHTML(a.name)}</button></div>`).join('');
+  renderDocker();
   $('#actions').innerHTML=state.actions.length?state.actions.map(a=>`<div class="action-shell" data-item-id="${a.id}">${dragHandle('actions',a)}<button class="action-run" data-run="${a.id}" ${running?'disabled':''}>${escapeHTML(a.name)}</button><button class="icon-button" data-info-action="${a.id}" aria-label="Information about ${escapeHTML(a.name)}">${infoIcon}</button><button class="icon-button" data-edit-action="${a.id}" aria-label="Edit ${escapeHTML(a.name)}">${pencilIcon}</button></div>`).join(''):'<p class="empty">Add a command to create your first action.</p>';
 }
 function renderHistory(jobs) {
@@ -191,8 +195,8 @@ function showActionInfo(id) {
 }
 async function runAction(id) {
   if(state.starting || state.job?.status==='running')return;
-  const a=state.actions.find(a=>a.id===id);if(!a)return;
-  const generation=state.generation,path=remotePath('actions/'+id+'/run');
+  const a=[...state.actions,...state.orcaActions].find(a=>a.id===id);if(!a)return;
+  const generation=state.generation,path=remotePath((a.builtin?'orca-actions/':'actions/')+id+'/run');
   clearError();
   state.starting=true;renderActions();
   try{
@@ -239,19 +243,19 @@ setInterval(async()=>{
   try{
     if(state.job?.status==='running'){
       const job=await api(remotePath('jobs/'+state.job.id));
-      if(generation===state.generation){state.job=job;renderJob();if(job.status!=='running'){renderActions();const jobs=await api(remotePath('jobs'));if(generation===state.generation)renderHistory(jobs);}}
+      if(generation===state.generation){state.job=job;renderJob();renderDockerProgress();if(job.status!=='running'){refreshDocker(true);renderActions();const jobs=await api(remotePath('jobs'));if(generation===state.generation)renderHistory(jobs);}}
     }
     if(generation===state.generation && state.historyJob?.status==='running'){
       const request=state.historyRequest,id=state.historyId;
       const job=state.job?.id===id?state.job:await api(remotePath('jobs/'+id));
       if(generation===state.generation && request===state.historyRequest){state.historyJob=job;renderJob(job,true);}
     }
-    if(++ticks%5===0)await refreshMetrics();
+    if(++ticks%5===0){await refreshMetrics();await refreshDocker();}
   }catch(e){fail(e);}finally{state.polling=false;}
 },1000);
-load().catch(fail);
 
 function closeWorkspace() {
+  resetDocker();
   state.selected=null;state.generation++;state.historyRequest++;
   state.job=null;state.historyJob=null;state.historyId='';state.actions=[];state.starting=false;
   show('#action-editor',false);show('#action-confirm',false);show('#workspace',false);
@@ -263,15 +267,15 @@ $('#open-workspace').onclick=async()=>{
   try{await refreshMetrics();await selectClient('local');}catch(e){fail(e);}
 };
 
-const reorderLists={clients:'#servers',actions:'#actions',shortcuts:'#shortcuts'};
-const reorderRender={clients:renderClients,actions:renderActions,shortcuts:renderShortcuts};
+const reorderLists={clients:'#servers',actions:'#actions',orcaActions:'#orca-actions',shortcuts:'#shortcuts'};
+const reorderRender={clients:renderClients,actions:renderActions,orcaActions:renderActions,shortcuts:renderShortcuts};
 function beginReorder(handle) {
   if(reordering || !isAdmin())return null;
   clearError();
   const kind=handle.dataset.reorder,list=$(reorderLists[kind]);
   const item=handle.closest('[data-item-id]');
   reordering={kind,list,item,items:state[kind],generation:state.generation,
-    endpoint:kind==='actions'?remotePath('actions/order'):'/api/'+kind+'/order',moved:false};
+    endpoint:kind==='actions'?remotePath('actions/order'):kind==='orcaActions'?remotePath('orca-actions/order'):'/api/'+kind+'/order',moved:false};
   return reordering;
 }
 function cancelReorder() {
@@ -296,7 +300,7 @@ async function saveReorder() {
     }
     $('#reorder-status').textContent='Order saved.';
   }catch(e){
-    if(current.kind!=='actions' || current.generation===state.generation)fail(e);
+    if(!['actions','orcaActions'].includes(current.kind) || current.generation===state.generation)fail(e);
   }finally{
     const id=current.item.dataset.itemId;
     current.list.classList.remove('saving-order');reordering=null;reorderRender[current.kind]();

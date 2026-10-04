@@ -18,21 +18,21 @@ class Store:
     def connect(self):
         return sqlite3.connect(self.path, timeout=10)
 
-    def all(self, kind):
+    def all(self, kind, items=None):
         with self.connect() as db:
-            items = [json.loads(r[0]) for r in db.execute('SELECT value FROM records WHERE kind=? ORDER BY rowid', (kind,))]
+            items = list(items) if items is not None else [json.loads(r[0]) for r in db.execute('SELECT value FROM records WHERE kind=? ORDER BY rowid', (kind,))]
             order = db.execute('SELECT ids FROM ordering WHERE kind=?', (kind,)).fetchone()
             if order:
                 positions = {key: index for index, key in enumerate(json.loads(order[0]))}
                 items.sort(key=lambda item: positions.get(item['id'], len(positions)))
             return items
 
-    def reorder(self, kind, ids):
+    def reorder(self, kind, ids, allowed_ids=None):
         if not isinstance(ids, list) or any(not isinstance(key, str) for key in ids):
             raise ValueError('Order must be a list of item IDs.')
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            existing = {row[0] for row in db.execute('SELECT id FROM records WHERE kind=?', (kind,))}
+            existing = set(allowed_ids) if allowed_ids is not None else {row[0] for row in db.execute('SELECT id FROM records WHERE kind=?', (kind,))}
             if len(ids) != len(existing) or set(ids) != existing:
                 raise ValueError('Items changed. Refresh and try reordering again.')
             db.execute('INSERT INTO ordering VALUES (?,?) ON CONFLICT(kind) DO UPDATE SET ids=excluded.ids',

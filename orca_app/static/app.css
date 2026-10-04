@@ -64,3 +64,45 @@ body{box-sizing:border-box;min-height:100vh;min-height:100svh;display:flex;flex-
 #orca .saving-order .drag-handle{cursor:wait;opacity:.5}
 #orca .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 @media(pointer:coarse){#orca .actions .action-shell .drag-handle{flex-basis:44px;width:44px;min-width:44px}#orca .server-shell>.drag-handle,#orca .shortcut-shell>.drag-handle{left:0;width:44px;min-width:44px}#orca .server-shell .server,#orca .shortcut-shell:has(>.drag-handle) .shortcut{padding-left:48px}}
+
+/* Client tabs and container controls. */
+#orca .workspace-tabs{display:flex;gap:24px;padding:0 20px;border-bottom:1px solid var(--o-line)}
+#orca .workspace-tab{padding:14px 2px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--o-sub)}
+#orca .workspace-tab.active{color:var(--o-ink);border-bottom-color:var(--o-accent)}
+#orca #docker-panel{padding:20px;min-height:300px}
+#orca .docker-heading{margin-bottom:12px}
+#orca #docker-message:empty{display:none}
+#orca #docker-message{margin-bottom:12px;overflow-wrap:anywhere}
+#orca .docker-scroll{overflow-x:auto;padding-bottom:10px}
+#orca .docker-table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}
+#orca .docker-table th{font-size:11px;color:var(--o-sub);font-weight:500;padding:10px 12px;border-bottom:1px solid var(--o-line)}
+#orca .docker-table td{padding:14px 12px;border-bottom:1px solid var(--o-line)}
+#orca .docker-table tr:last-child td{border-bottom:0}
+#orca .docker-name{min-width:160px;overflow-wrap:anywhere;max-width:360px}
+#orca .docker-name small{display:block;margin-top:3px}
+#orca .docker-stat{white-space:nowrap;font-variant-numeric:tabular-nums}
+#orca .docker-controls{display:flex;gap:6px;width:max-content}
+#orca .docker-controls .icon-button{width:32px;min-width:32px;height:32px;padding:7px}
+#orca .update-group{display:inline-flex;margin-left:6px}
+#orca .update-group button:first-child{border-radius:8px 0 0 8px}
+#orca .update-group button:last-child{border-radius:0 8px 8px 0;border-left:0}
+#orca .update-available{color:light-dark(#168345,#75e49a);background:light-dark(#edf9ef,#20382b)}
+#orca .state-indicator{position:relative;display:inline-flex}
+#orca .state-dot{border:0;background:transparent;width:32px;height:32px;padding:10px;display:grid;place-items:center}
+#orca .state-dot span{display:block;width:10px;height:10px;border-radius:50%;background:currentColor}
+#orca .state-dot.gray{color:light-dark(#78838a,#a1adb5)}
+#orca .state-dot.blue{color:light-dark(#2472c8,#70b5ff)}
+#orca .state-dot.green{color:light-dark(#208445,#7cdea1)}
+#orca .state-dot.amber{color:light-dark(#b07913,#f2c15c)}
+#orca .state-dot.red{color:light-dark(#c23838,#ff8585)}
+#orca .state-dot.purple{color:light-dark(#8553be,#be98ee)}
+#orca .state-tooltip{display:none;position:absolute;z-index:3;left:26px;top:0;width:max-content;max-width:180px;padding:6px 10px;border-radius:6px;background:var(--o-ink);color:var(--o-panel);font-size:11px;pointer-events:none}
+#orca .state-indicator:hover .state-tooltip,#orca .state-indicator:focus-within .state-tooltip{display:block}
+#orca dialog{background:var(--o-panel);color:var(--o-ink);border:1px solid var(--o-line);border-radius:12px;padding:24px;width:min(680px,calc(100vw - 32px));max-height:85vh;overflow:auto}
+#orca dialog::backdrop{background:#07121599}
+#orca #docker-dialog-body{margin-top:18px}
+#orca .docker-directory{margin-top:14px}
+#orca .docker-command{min-height:0;max-height:240px;background:var(--o-bg);padding:12px;color:var(--o-ink);margin:14px 0 20px}
+#orca #docker-progress-output{min-height:140px;max-height:45vh}
+@media(max-width:720px){#orca #docker-panel{padding:12px}#orca .docker-table td,#orca .docker-table th{padding:10px 8px}#orca .docker-controls .icon-button{width:36px;min-width:36px;height:36px}#orca .docker-name{min-width:150px}}
+@media(pointer:coarse){#orca .docker-controls .icon-button,#orca .state-dot{width:44px;min-width:44px;height:44px}}

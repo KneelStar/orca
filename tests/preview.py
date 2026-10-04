@@ -17,6 +17,9 @@ client_port = int(os.getenv('ORCA_PREVIEW_CLIENT_PORT', '8766'))
 base = dict(ADMIN_PASSWORD='orca-preview-local', SECRET_KEY=secrets.token_hex(32), CLIENT_TOKEN=secrets.token_hex(32))
 client = create_app(dict(base, ROLE='client', DATABASE=str(Path(folder.name)/'client.sqlite3'),
                          CLIENT_NAME='Local test client', SESSION_COOKIE_NAME='orca_preview_client'))
+if os.getenv('ORCA_PREVIEW_DOCKER_FIXTURE') == 'true':
+    from docker_fixture import install_docker_fixture
+    install_docker_fixture(client)
 main = create_app(dict(base, ROLE='orchestrator', DATABASE=str(Path(folder.name)/'main.sqlite3'),
                        SESSION_COOKIE_NAME='orca_preview_main'))
 main.extensions['store'].put('clients',dict(id='local-client',name='Local test client',url=f'http://127.0.0.1:{client_port}',token=base['CLIENT_TOKEN']))

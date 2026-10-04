@@ -1,4 +1,5 @@
 import hmac
+import hashlib
 import os
 import platform
 import secrets
@@ -18,6 +19,7 @@ from flask import Flask, abort, jsonify, render_template, request, session
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from .docker_service import BUILTINS, DockerService
 from .execution import Execution
 from .jobs import Busy, Jobs
 from .store import Store
@@ -50,8 +52,12 @@ def create_app(overrides=None):
     store = Store(app.config['DATABASE'])
     app.extensions['store'] = store
     execution = Execution() if role == 'client' else None
+    if execution:
+        execution.self_token_hash = hashlib.sha256(app.config['CLIENT_TOKEN'].encode()).hexdigest()
     jobs = Jobs(store, execution) if role == 'client' else None
     app.extensions['jobs'] = jobs
+    docker = DockerService(store, execution, jobs) if jobs else None
+    app.extensions['docker'] = docker
     failures = defaultdict(deque)
     auth_lock = threading.Lock()
     metrics_lock = threading.Lock()
@@ -183,9 +189,9 @@ def create_app(overrides=None):
         require_role('orchestrator')
         return jsonify([s for s in store.all('shortcuts') if s['visibility'] == 'shared' or authenticated()])
 
-    def save_order(kind):
+    def save_order(kind, allowed_ids=None):
         try:
-            store.reorder(kind, body().get('ids'))
+            store.reorder(kind, body().get('ids'), allowed_ids)
         except ValueError as error:
             abort(400, str(error))
         return jsonify(ok=True)
@@ -261,7 +267,14 @@ def create_app(overrides=None):
     def remote(key, endpoint):
         require_role('orchestrator')
         parts = endpoint.split('/')
-        allowed = ((endpoint == 'metrics' and request.method == 'GET') or
+        docker_allowed = ((endpoint == 'docker' and request.method == 'GET') or
+                          (endpoint == 'orca-actions' and request.method == 'GET') or
+                          (endpoint == 'orca-actions/order' and request.method == 'PUT') or
+                          (endpoint == 'orca-actions/orca-check-updates/run' and request.method == 'POST') or
+                          (len(parts) == 3 and parts[0] == 'docker' and (
+                              (parts[2] == 'recipe' and request.method == 'PUT') or
+                              (parts[2] in ('prepare', 'update', 'control') and request.method == 'POST'))))
+        allowed = docker_allowed or ((endpoint == 'metrics' and request.method == 'GET') or
                    (endpoint == 'actions' and request.method in ('GET', 'POST')) or
                    (len(parts) == 2 and parts[0] == 'actions' and request.method in ('PUT', 'DELETE')) or
                    (len(parts) == 3 and parts[0] == 'actions' and parts[2] == 'run' and request.method == 'POST') or
@@ -276,7 +289,7 @@ def create_app(overrides=None):
                 transport.trust_env = False
                 with transport.request(request.method, client['url'] + '/api/host/' + endpoint,
                                        headers={'Authorization': 'Bearer ' + client['token']}, json=payload,
-                                       timeout=(3, 10), allow_redirects=False, stream=True) as response:
+                                       timeout=(3, 65 if endpoint.startswith('docker') else 10), allow_redirects=False, stream=True) as response:
                     if 300 <= response.status_code < 400:
                         abort(502, 'Client redirected the request. Check its configured address.')
                     content = bytearray()
@@ -355,6 +368,78 @@ def create_app(overrides=None):
             return jsonify(jobs.start(record('actions', key))), 202
         except Busy as error:
             abort(409, str(error))
+
+
+    @app.get('/api/host/orca-actions')
+    @protect(machine=True)
+    def orca_actions():
+        require_role('client')
+        return jsonify(store.all('orca-actions', BUILTINS))
+
+    @app.put('/api/host/orca-actions/order')
+    @protect(machine=True)
+    def order_orca_actions():
+        require_role('client')
+        return save_order('orca-actions', [action['id'] for action in BUILTINS])
+
+    @app.post('/api/host/orca-actions/orca-check-updates/run')
+    @protect(machine=True)
+    def check_docker_updates():
+        require_role('client')
+        try:
+            return jsonify(docker.check()), 202
+        except Busy as error:
+            abort(409, str(error))
+
+    def docker_call(callback):
+        try:
+            return callback()
+        except Busy as error:
+            abort(409, str(error))
+        except ValueError as error:
+            abort(400, str(error))
+        except (RuntimeError, OSError, subprocess.SubprocessError) as error:
+            abort(502, str(error))
+
+    @app.get('/api/host/docker')
+    @protect(machine=True)
+    def docker_containers():
+        require_role('client')
+        return jsonify(docker_call(docker.listing))
+
+    @app.put('/api/host/docker/<identifier>/recipe')
+    @protect(machine=True)
+    def save_docker_recipe(identifier):
+        require_role('client')
+        data = body()
+        command = text(data, 'command', 16384)
+        cwd = text(data, 'cwd', 4096, optional=True)
+        timeout = data.get('timeout', 3600)
+        if type(timeout) is not int or not 1 <= timeout <= 86400:
+            abort(400, 'Timeout must be between 1 and 86400 seconds.')
+        if '\x00' in command or '\x00' in cwd:
+            abort(400, 'Command and working directory cannot contain null characters.')
+        return jsonify(docker_call(lambda: docker.edit(identifier, command, cwd, timeout)))
+
+    @app.post('/api/host/docker/<identifier>/prepare')
+    @protect(machine=True)
+    def prepare_docker_update(identifier):
+        require_role('client')
+        return jsonify(docker_call(lambda: docker.prepare(identifier)))
+
+    @app.post('/api/host/docker/<identifier>/update')
+    @protect(machine=True)
+    def update_docker_container(identifier):
+        require_role('client')
+        confirmation = text(body(), 'confirmation', 64)
+        return jsonify(docker_call(lambda: docker.update(identifier, confirmation))), 202
+
+    @app.post('/api/host/docker/<identifier>/control')
+    @protect(machine=True)
+    def control_docker_container(identifier):
+        require_role('client')
+        operation = text(body(), 'operation', 32)
+        return jsonify(docker_call(lambda: docker.lifecycle(identifier, operation))), 202
 
     @app.get('/api/host/jobs')
     @protect(machine=True)

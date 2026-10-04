@@ -6,6 +6,8 @@ import platform
 import re
 import shlex
 import subprocess
+import signal
+import sys
 from pathlib import Path
 
 import psutil
@@ -38,6 +40,12 @@ else:
 
 class Execution:
     def __init__(self):
+        self.docker_prefix = shlex.split(os.getenv('ORCA_DOCKER_COMMAND', 'docker'))
+        if not self.docker_prefix:
+            raise ValueError('ORCA_DOCKER_COMMAND cannot be empty.')
+        self.docker_context = os.getenv('ORCA_DOCKER_CONTEXT', '')
+        if self.docker_context:
+            self.docker_prefix += ['--context', self.docker_context]
         self.mode = os.getenv('ORCA_EXECUTION_MODE', 'local')
         if self.mode not in ('local', 'ssh'):
             raise ValueError('ORCA_EXECUTION_MODE must be local or ssh.')
@@ -95,3 +103,40 @@ class Execution:
         data['execution_target'] = self.label
         data['metrics_scope'] = 'Container-visible system metrics' if self.in_container and self.mode == 'local' else 'Host metrics'
         return data
+
+    def docker_query(self, operation, timeout=45):
+        # Bundle the read-only worker so SSH hosts need Python and Docker, not Orca installed.
+        directory = Path(__file__).parent
+        source = (directory / 'image_updates.py').read_text() + '\n' + (directory / 'docker_worker.py').read_text().replace(
+            'from .image_updates import Docker, registry_image_id', '')
+        payload = dict(operation=operation, command=self.docker_prefix,
+                       self_id=os.getenv('HOSTNAME', '') if self.in_container else '',
+                       self_token_hash=getattr(self, 'self_token_hash', ''))
+        source += '\nworker_main(' + repr(payload) + ')\n'
+        loader = "import base64;exec(base64.b64decode(" + repr(base64.b64encode(source.encode()).decode()) + "))"
+        if self.mode == 'ssh':
+            command = self.ssh(dict(kind='action', command=shlex.join([self.python, '-u', '-c', loader]),
+                                    cwd='', timeout=timeout))
+        else:
+            command = [sys.executable, '-u', '-c', loader]
+        env = {key: value for key, value in os.environ.items() if not key.startswith('ORCA_')}
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                   stdin=subprocess.DEVNULL, env=env, start_new_session=os.name != 'nt')
+        try:
+            output, error = process.communicate(timeout=timeout + (15 if self.mode == 'ssh' else 0))
+        except subprocess.TimeoutExpired:
+            if os.name == 'nt':
+                subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=10)
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+            raise RuntimeError('Docker query exceeded its time limit.')
+        if process.returncode:
+            raise RuntimeError(error.strip()[-500:] or 'Docker query failed on the execution target.')
+        try:
+            result = json.loads(output)
+        except ValueError:
+            raise RuntimeError('Docker query returned invalid data.')
+        if result.get('error'):
+            raise RuntimeError(result['error'])
+        return result

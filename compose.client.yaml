@@ -1,6 +1,6 @@
 services:
   client:
-    image: ${ORCA_IMAGE:-orca:0.1.4}
+    image: ${ORCA_IMAGE:-orca:0.2.0}
     build: .
     restart: unless-stopped
     ports:
@@ -14,6 +14,8 @@ services:
       ORCA_ADMIN_TITLE: ${ORCA_ADMIN_TITLE}
       ORCA_PUBLIC_TITLE: ${ORCA_PUBLIC_TITLE}
       ORCA_COOKIE_SECURE: ${ORCA_COOKIE_SECURE:-false}
+      ORCA_DOCKER_COMMAND: ${ORCA_DOCKER_COMMAND:-docker}
+      ORCA_DOCKER_CONTEXT: ${ORCA_DOCKER_CONTEXT:-}
       ORCA_EXECUTION_MODE: ${ORCA_EXECUTION_MODE:-local}
       ORCA_SSH_TARGET: ${ORCA_SSH_TARGET:-}
       ORCA_SSH_PORT: ${ORCA_SSH_PORT:-22}

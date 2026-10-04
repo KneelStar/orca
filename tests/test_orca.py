@@ -120,6 +120,24 @@ class OrcaTests(unittest.TestCase):
         self.assertEqual(public.put('/api/shortcuts/order', json={'ids':[]}).status_code, 401)
         self.assertEqual([item['name'] for item in public.get('/api/shortcuts').json], ['Edited','First','New'])
 
+    def test_orca_action_order_persists_without_editing_builtin_definitions(self):
+        builtins = [dict(id='orca-first', name='First', builtin=True),
+                    dict(id='orca-second', name='Second', builtin=True)]
+        with patch('orca_app.app.BUILTINS', builtins):
+            client = self.host().test_client()
+            headers = {'Authorization':'Bearer '+'t'*48}
+            base = '/api/host/orca-actions'
+            ids = ['orca-second', 'orca-first']
+            self.assertEqual(client.put(base+'/order', json={'ids':ids}).status_code, 401)
+            self.assertEqual(client.put(base+'/order', headers=headers, json={'ids':ids}).status_code, 200)
+            for invalid in ([], ['orca-first'], ['orca-first','orca-first'], ['unknown','orca-first']):
+                self.assertEqual(client.put(base+'/order', headers=headers, json={'ids':invalid}).status_code, 400)
+            reopened = self.host().test_client()
+            self.assertEqual([item['id'] for item in reopened.get(base, headers=headers).json], ids)
+            self.assertEqual(builtins[0]['id'], 'orca-first')
+            self.assertEqual(client.put(base+'/orca-first', headers=headers, json={'name':'Edited'}).status_code, 404)
+            self.assertEqual(client.delete(base+'/orca-first', headers=headers).status_code, 404)
+
     def test_action_order_supports_machine_auth(self):
         host = self.host()
         client = host.test_client()

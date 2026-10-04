@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Orca</title><link rel="icon" type="image/svg+xml" href="/static/favicon.svg"><link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Orca</title><link rel="icon" type="image/svg+xml" href="/static/favicon.svg"><link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script><script src="/static/docker.js" defer></script></head>
 <body><div id="orca"><header><a class="brand" href="/" aria-label="Orca home"><span class="logo" aria-hidden="true">≈</span>orca</a><div class="grow"></div><button id="preview" hidden>Shared view</button><button id="auth-button">Admin login</button></header><main>
 <div id="reorder-status" class="sr-only" role="status" aria-live="polite"></div>
 <div id="error" class="error" role="alert" hidden></div>
@@ -9,14 +9,20 @@
 <section class="workspace" id="workspace" hidden>
   <div class="workspace-head"><div><h2 id="client-name"></h2><p class="muted" id="client-address"></p></div><div class="grow"></div><button class="icon-button" id="workspace-close" aria-label="Close client details">X</button></div>
   <div id="workspace-body">
-  <div id="work-grid" class="work-grid">
+  <div class="workspace-tabs" role="tablist" aria-label="Client details">
+    <button id="actions-tab" class="workspace-tab active" role="tab" aria-selected="true" aria-controls="work-grid">Actions</button>
+    <button id="docker-tab" class="workspace-tab" role="tab" aria-selected="false" aria-controls="docker-panel" tabindex="-1">Docker</button>
+  </div>
+  <div id="workspace-content">
+  <div id="work-grid" class="work-grid" role="tabpanel" aria-labelledby="actions-tab">
     <div class="controls">
-      <div class="row"><h3>Quick actions</h3><div class="grow"></div><button class="primary" id="add-action">+ Add action</button></div>
+      <h3>Orca actions</h3><div class="actions" id="orca-actions"></div>
+      <div class="row defined-actions-heading"><h3>Defined actions</h3><div class="grow"></div><button class="primary" id="add-action">+ Add action</button></div>
       <div class="editor" id="action-editor" hidden></div><div class="actions" id="actions"></div><div id="action-confirm" class="confirm" hidden></div>
     </div>
     <div class="console">
       <div class="console-tabs" role="tablist" aria-label="Action output">
-        <button class="console-tab active" id="quick-tab" role="tab" aria-selected="true" aria-controls="quick-panel">Quick output</button>
+        <button class="console-tab active" id="quick-tab" role="tab" aria-selected="true" aria-controls="quick-panel">Action output</button>
         <button class="console-tab" id="recent-tab" role="tab" aria-selected="false" aria-controls="recent-panel">Recent actions</button>
       </div>
       <div id="quick-panel" role="tabpanel" aria-labelledby="quick-tab">
@@ -31,8 +37,18 @@
       </div>
     </div>
   </div>
+  <div id="docker-panel" role="tabpanel" aria-labelledby="docker-tab" hidden>
+    <div class="row docker-heading"><h3>Containers</h3><div class="grow"></div><span class="muted" id="docker-count"></span></div>
+    <p id="docker-message" class="muted" role="status">Open this tab to load containers.</p>
+    <div class="docker-scroll" tabindex="0" role="region" aria-label="Containers table">
+      <table class="docker-table"><thead><tr><th scope="col">Name@tag</th><th scope="col">State</th><th scope="col">CPU</th><th scope="col">Memory</th><th scope="col">Actions</th></tr></thead><tbody id="docker-rows"></tbody></table>
+    </div>
+  </div>
+  </div>
   <div id="unavailable" class="console" hidden></div>
   </div>
 </section>
 <section class="bottom" id="shortcut-section" hidden><div class="section-head"><h2>Shortcuts</h2><button class="primary" id="add-shortcut" hidden>+ Add shortcut</button></div><div id="shortcut-editor" class="editor" hidden></div><div class="shortcuts" id="shortcuts"></div></section>
-</main></div></body></html>
+</main>
+<dialog id="docker-dialog" aria-labelledby="docker-dialog-title"><div class="row"><h2 id="docker-dialog-title"></h2><div class="grow"></div><button id="docker-dialog-close" class="icon-button" aria-label="Close Docker dialog">X</button></div><div id="docker-dialog-body"></div><p id="docker-dialog-error" class="error" role="alert" hidden></p></dialog>
+</div></body></html>

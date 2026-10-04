@@ -121,7 +121,7 @@ const assert=require('node:assert/strict');
  await page.waitForFunction(()=>document.querySelector('#output').textContent.includes('second-finish'));
  assert.equal(await page.getByRole('tab',{name:'Recent actions',exact:true}).getAttribute('aria-selected'),'true');
  assert.match(await page.locator('#history-output').textContent(),/connected successfully/);
- await page.getByRole('tab',{name:'Quick output',exact:true}).click();
+ await page.getByRole('tab',{name:'Action output',exact:true}).click();
  assert.match(await page.locator('#output').textContent(),/second-finish/);
  await page.screenshot({path:'/tmp/orca-desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});
