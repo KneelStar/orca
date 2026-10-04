@@ -94,6 +94,43 @@ class OrcaTests(unittest.TestCase):
         self.assertLessEqual(response.json['ram'],100)
         self.assertEqual(client.get('/api/clients',headers=self.login(client)).status_code,404)
 
+    def test_reordering_persists_and_rejects_invalid_orders(self):
+        headers = self.login()
+        for kind, payload in (
+            ('clients', {'url':'http://127.0.0.1:9999','token':'t'*48}),
+            ('shortcuts', {'url':'https://example.com','visibility':'shared'}),
+        ):
+            base = '/api/' + kind
+            records = [self.client.post(base, headers=headers, json=dict(payload, name=name)).json
+                       for name in ('First', 'Second')]
+            ids = [item['id'] for item in records][::-1]
+            self.assertEqual(self.client.put(base+'/order', json={'ids':ids}).status_code, 403)
+            self.assertEqual(self.client.put(base+'/order', headers=headers, json={'ids':ids}).status_code, 200)
+            for invalid in (None, ids[:1], [ids[0],ids[0]], ['unknown',ids[1]], [[],ids[1]]):
+                self.assertEqual(self.client.put(base+'/order', headers=headers, json={'ids':invalid}).status_code, 400)
+            self.client.put(base+'/'+ids[0], headers=headers, json=dict(payload,name='Edited'))
+            reopened = create_app(self.config).test_client()
+            self.login(reopened)
+            self.assertEqual([item['id'] for item in reopened.get(base).json], ids)
+            if kind == 'clients':
+                self.assertNotIn('token', reopened.get(base).text)
+            added = self.client.post(base, headers=headers, json=dict(payload,name='New')).json
+            self.assertEqual([item['id'] for item in self.client.get(base).json], ids+[added['id']])
+        public = self.app.test_client()
+        self.assertEqual(public.put('/api/shortcuts/order', json={'ids':[]}).status_code, 401)
+        self.assertEqual([item['name'] for item in public.get('/api/shortcuts').json], ['Edited','First','New'])
+
+    def test_action_order_supports_machine_auth(self):
+        host = self.host()
+        client = host.test_client()
+        headers = {'Authorization':'Bearer '+'t'*48}
+        items = [client.post('/api/host/actions', headers=headers,
+                             json={'name':name,'command':'printf test'}).json for name in ('A','B')]
+        ids = [item['id'] for item in items][::-1]
+        self.assertEqual(client.put('/api/host/actions/order', json={'ids':ids}).status_code, 401)
+        self.assertEqual(client.put('/api/host/actions/order', headers=headers, json={'ids':ids}).status_code, 200)
+        self.assertEqual([item['id'] for item in self.host().test_client().get('/api/host/actions',headers=headers).json], ids)
+
     def wait_job(self,client,key,headers):
         for _ in range(100):
             job=client.get('/api/host/jobs/'+key,headers=headers).json
@@ -137,6 +174,10 @@ class OrcaTests(unittest.TestCase):
             base='/api/clients/'+record['id']+'/remote/'
             self.assertEqual(self.client.get(base+'metrics').status_code,200)
             action=self.client.post(base+'actions',headers=headers,json={'name':'Proxy','command':'printf through-proxy','timeout':5}).json
+            second=self.client.post(base+'actions',headers=headers,json={'name':'Second','command':'printf second'}).json
+            order=[second['id'],action['id']]
+            self.assertEqual(self.client.put(base+'actions/order',headers=headers,json={'ids':order}).status_code,200)
+            self.assertEqual([item['id'] for item in self.client.get(base+'actions').json],order)
             job=self.client.post(base+'actions/'+action['id']+'/run',headers=headers,json={}).json
             machine_headers={'Authorization':'Bearer '+'t'*48}
             result=self.wait_job(host.test_client(),job['id'],machine_headers)

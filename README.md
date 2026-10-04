@@ -6,6 +6,7 @@ This first milestone includes:
 
 - Single-admin password login, with server-side authorization and CSRF protection.
 - Saved clients, shared/admin-only URL shortcuts, and configurable page headings.
+- Drag handles for rearranging clients, quick actions, and shortcuts in admin mode; orders are saved across reloads. Handles also support touch and arrow keys.
 - CPU, RAM, OS, and disk metrics from each client; dashboard disk percentage is the fullest reported filesystem.
 - Add/edit/delete client-local command buttons, working directories, and timeouts.
 - Live command output, exit status, recent job history, and persistence across page reloads.
@@ -23,18 +24,18 @@ Python 3.10+, Flask, Waitress, SQLite, psutil, and plain HTML/CSS/JavaScript. No
 The orchestrator and client use the same image; `ORCA_ROLE` selects the service. Build and export it on a machine with Docker access:
 
 ```sh
-docker build -t orca:0.1.2 .
-docker save orca:0.1.2 | gzip > orca-0.1.2.tar.gz
+docker build -t orca:0.1.4 .
+docker save orca:0.1.4 | gzip > orca-0.1.4.tar.gz
 ```
 
-Copy `orca-0.1.2.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
+Copy `orca-0.1.4.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
 
 ```sh
-gunzip -c orca-0.1.2.tar.gz | docker load
+gunzip -c orca-0.1.4.tar.gz | docker load
 docker compose up -d
 ```
 
-The Compose files use `orca:0.1.2` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
+The Compose files use `orca:0.1.4` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
 
 ## Docker: Orca orchestrator
 
@@ -96,7 +97,7 @@ The script installs and enables the SSH server, installs Python/venv and sudo, c
 After successful setup, add or update these values in your existing client `.env`, preserving its passwords, session secret, client token, and port:
 
 ```dotenv
-ORCA_IMAGE=orca:0.1.2
+ORCA_IMAGE=orca:0.1.4
 ORCA_EXECUTION_MODE=ssh
 ORCA_SSH_TARGET=orca-run@host.docker.internal
 ORCA_SSH_PORT=22
@@ -188,3 +189,5 @@ A disposable local preview is available with:
 It runs Orca at `http://127.0.0.1:8765` and an independent client at `http://127.0.0.1:8766`. Its **test-only password is `orca-preview-local`**, all databases are temporary, and it binds only to localhost. Do not expose this preview through a proxy or tailnet. The preview uses real metrics and real actions on the local machine; add only commands you intend to execute.
 
 `tests/browser.cjs` checks the preview using Playwright, including mobile layout, adding actions/shortcuts, running a harmless command, direct client access, and private shortcut visibility. Supply `ORCA_PLAYWRIGHT` if the module isn't on Node's module path, and optionally `ORCA_BROWSER` for an existing Chromium executable.
+
+`tests/reorder.cjs` checks dragging all three lists, persistence after reloads and edits, rollback on save errors, keyboard movement, and mobile touch dragging against the same disposable preview.

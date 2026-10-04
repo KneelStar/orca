@@ -183,6 +183,25 @@ def create_app(overrides=None):
         require_role('orchestrator')
         return jsonify([s for s in store.all('shortcuts') if s['visibility'] == 'shared' or authenticated()])
 
+    def save_order(kind):
+        try:
+            store.reorder(kind, body().get('ids'))
+        except ValueError as error:
+            abort(400, str(error))
+        return jsonify(ok=True)
+
+    @app.put('/api/shortcuts/order')
+    @protect()
+    def order_shortcuts():
+        require_role('orchestrator')
+        return save_order('shortcuts')
+
+    @app.put('/api/clients/order')
+    @protect()
+    def order_clients():
+        require_role('orchestrator')
+        return save_order('clients')
+
     @app.post('/api/shortcuts')
     @app.put('/api/shortcuts/<key>')
     @protect()
@@ -296,6 +315,12 @@ def create_app(overrides=None):
     def actions():
         require_role('client')
         return jsonify(store.all('actions'))
+
+    @app.put('/api/host/actions/order')
+    @protect(machine=True)
+    def order_actions():
+        require_role('client')
+        return save_order('actions')
 
     @app.post('/api/host/actions')
     @app.put('/api/host/actions/<key>')
