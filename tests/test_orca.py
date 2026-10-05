@@ -71,6 +71,8 @@ class OrcaTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/shortcuts',json={}).status_code,403)
         for url in ('javascript:alert(1)','https://user:pass@example.com','file:///etc/passwd'):
             self.assertEqual(self.client.post('/api/shortcuts',headers=headers,json={'name':'bad','url':url}).status_code,400)
+            self.assertEqual(self.client.post('/api/shortcuts',headers=headers,json={
+                'name':'bad icon','url':'https://example.com','favicon_url':url}).status_code,400)
         self.assertEqual(self.client.post('/api/clients',headers=headers,json={'name':'bad','url':'http://example.com/path','token':'t'*48}).status_code,400)
 
     def test_persistence_and_no_token_in_client_response(self):

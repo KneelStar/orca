@@ -78,7 +78,7 @@ class Jobs:
                 job.update(exit_code=code, status='succeeded' if code == 0 else 'failed')
             else:
                 # Do not expose Orca credentials to configured commands through their environment.
-                env = {k: v for k, v in os.environ.items() if not k.startswith('ORCA_')}
+                env = {k: v for k, v in os.environ.items() if not k.upper().startswith('ORCA_')}
                 process = subprocess.Popen(**self.execution.command(action),
                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                            env=env, start_new_session=os.name != 'nt')

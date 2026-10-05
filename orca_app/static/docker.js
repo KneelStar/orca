@@ -39,7 +39,7 @@ async function refreshDocker(force=false){
     $('#docker-message').textContent=data.warnings.join(' · ') || (data.containers.length?'':'No containers on this Docker endpoint.');
     $('#docker-count').textContent=`${data.containers.length} total`;
     if(data.active_job && state.job?.id!==data.active_job){
-      const job=await api(remotePath('jobs/'+data.active_job));
+      const job=await api(remotePath('jobs/'+encodeURIComponent(data.active_job)));
       if(generation!==state.generation||request!==dockerState.request)return;
       state.job=job;state.quickCleared=false;renderJob();renderActions();
     }
@@ -68,9 +68,9 @@ function renderDocker(){
     const active=row.state==='running'||row.state==='restarting'||row.state==='paused';
     const startStop=active?'stop':'start',pause=row.state==='paused'?'unpause':'pause';
     const operations=({running:['stop','pause','restart'],paused:['unpause'],created:['start'],exited:['start'],restarting:['stop']})[row.state]||[];
-    const button=(operation,name,enabled,extra='')=>`<button class="icon-button ${extra}" data-container="${row.id}" data-docker-operation="${operation}" data-focus-key="${row.id}-${operation}" aria-label="${name} ${escapeHTML(row.name)}" title="${name}" ${enabled?'':'disabled'}>${operation==='edit'?pencilIcon:`<svg viewBox="0 0 24 24" aria-hidden="true">${dockerIcons[operation]}</svg>`}</button>`;
+    const button=(operation,name,enabled,extra='')=>`<button class="icon-button ${extra}" data-container="${escapeHTML(row.id)}" data-docker-operation="${operation}" data-focus-key="${escapeHTML(row.id)}-${operation}" aria-label="${name} ${escapeHTML(row.name)}" title="${name}" ${enabled?'':'disabled'}>${operation==='edit'?pencilIcon:`<svg viewBox="0 0 24 24" aria-hidden="true">${dockerIcons[operation]}</svg>`}</button>`;
     const lifecycle=(operation,name)=>button(operation,name,!busy&&!row.managed&&!(row.self_update&&['stop','pause','restart'].includes(operation))&&operations.includes(operation));
-    return `<tr><td class="docker-name"><span title="${escapeHTML(row.image)}">${escapeHTML(row.name)}<span class="muted">@${escapeHTML(row.tag)}</span></span>${row.project?`<small class="muted">${escapeHTML(row.project)}</small>`:''}</td><td><span class="state-indicator"><button class="state-dot ${color}" aria-label="${escapeHTML(label)}" aria-describedby="state-${row.id}" data-focus-key="${row.id}-state"><span aria-hidden="true"></span></button><span role="tooltip" id="state-${row.id}" class="state-tooltip">${escapeHTML(label)}</span></span></td><td class="docker-stat">${escapeHTML(row.cpu||'—')}</td><td class="docker-stat">${escapeHTML(row.memory||'—')}</td><td><div class="docker-controls">${lifecycle(startStop,active?'Stop':'Start')}${lifecycle(pause,pause==='unpause'?'Resume':'Pause')}${lifecycle('restart','Restart')}<span class="update-group">${button('update','Update',!busy&&row.update_enabled,row.update_available?'update-available':'')}${button('edit','Edit update command for',!busy)}</span></div></td></tr>`;
+    return `<tr><td class="docker-name"><span title="${escapeHTML(row.image)}">${escapeHTML(row.name)}<span class="muted">@${escapeHTML(row.tag)}</span></span>${row.project?`<small class="muted">${escapeHTML(row.project)}</small>`:''}</td><td><span class="state-indicator"><button class="state-dot ${color}" aria-label="${escapeHTML(label)}" aria-describedby="state-${escapeHTML(row.id)}" data-focus-key="${escapeHTML(row.id)}-state"><span aria-hidden="true"></span></button><span role="tooltip" id="state-${escapeHTML(row.id)}" class="state-tooltip">${escapeHTML(label)}</span></span></td><td class="docker-stat">${escapeHTML(row.cpu||'—')}</td><td class="docker-stat">${escapeHTML(row.memory||'—')}</td><td><div class="docker-controls">${lifecycle(startStop,active?'Stop':'Start')}${lifecycle(pause,pause==='unpause'?'Resume':'Pause')}${lifecycle('restart','Restart')}<span class="update-group">${button('update','Update',!busy&&row.update_enabled,row.update_available?'update-available':'')}${button('edit','Edit update command for',!busy)}</span></div></td></tr>`;
   }).join('');
   if(focusKey){const target=[...$('#docker-rows').querySelectorAll('button')].find(button=>button.dataset.focusKey===focusKey);target?.focus({preventScroll:true});}
 }
@@ -84,7 +84,7 @@ $('#docker-dialog-close').onclick=()=>$('#docker-dialog').close();
 function editDocker(row){
   const recipe=row.recipe;
   openDockerDialog('Edit update command',`<p class="muted">${row.project?`Shared by all containers in project ${escapeHTML(row.project)}.`:`Update command for ${escapeHTML(row.name)}.`}</p>${row.self_update?'<p class="muted">Update this Orca client using an external executor.</p>':''}${recipe.reason?`<p class="muted">${escapeHTML(recipe.reason)}</p>`:''}<form id="docker-recipe-form"><div class="fields">${input('Working directory','cwd',recipe.cwd||'','text',false)}${input('Timeout (seconds)','timeout',recipe.timeout||3600,'number')}<div class="full"><label for="docker-update-command">Update command</label><textarea id="docker-update-command" name="command" rows="6" required>${escapeHTML(recipe.command||'')}</textarea></div></div><button class="primary">Save update command</button></form>`);
-  const generation=state.generation,path=remotePath('docker/'+row.id+'/recipe');
+  const generation=state.generation,path=remotePath('docker/'+encodeURIComponent(row.id)+'/recipe');
   $('#docker-recipe-form').onsubmit=async event=>{
     event.preventDefault();const button=event.submitter;button.disabled=true;
     try{
@@ -97,7 +97,7 @@ function editDocker(row){
 }
 async function prepareDockerUpdate(row){
   if(dockerBusy())return;
-  const generation=state.generation,path=remotePath('docker/'+row.id);
+  const generation=state.generation,path=remotePath('docker/'+encodeURIComponent(row.id));
   openDockerDialog('Update '+(row.project||row.name),'<p class="muted">Loading the current update command…</p>');
   try{
     const prepared=await api(path+'/prepare','POST',{});
@@ -136,7 +136,7 @@ $('#docker-rows').onclick=event=>{
   const operation=button.dataset.dockerOperation;
   if(operation==='edit')editDocker(row);
   else if(operation==='update')prepareDockerUpdate(row);
-  else startDockerJob(remotePath('docker/'+row.id+'/control'),{operation});
+  else startDockerJob(remotePath('docker/'+encodeURIComponent(row.id)+'/control'),{operation});
 };
 
 load().catch(fail);

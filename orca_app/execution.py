@@ -12,6 +12,8 @@ from pathlib import Path
 
 import psutil
 
+from .image_updates import run_bounded
+
 
 # Executed by the host's Python, with its own timeout if the SSH connection drops.
 REMOTE_SCRIPT = '''
@@ -28,7 +30,9 @@ if payload['kind']=='metrics':
   except OSError: pass
  print(json.dumps(dict(os=platform.system(),cpu=psutil.cpu_percent(interval=.1),ram=psutil.virtual_memory().percent,disks=disks)))
 else:
- p=subprocess.Popen(payload['command'],shell=True,cwd=payload.get('cwd') or None,start_new_session=True,stdin=subprocess.DEVNULL)
+ env={k:v for k,v in os.environ.items() if not k.upper().startswith('ORCA_')}
+ argv=payload.get('argv')
+ p=subprocess.Popen(argv if argv is not None else payload['command'],shell=argv is None,cwd=payload.get('cwd') or None,start_new_session=True,stdin=subprocess.DEVNULL,env=env)
  try: sys.exit(p.wait(timeout=payload['timeout']))
  except subprocess.TimeoutExpired:
   os.killpg(p.pid,signal.SIGKILL)
@@ -83,12 +87,17 @@ class Execution:
             # Job metadata has its own kind; only execution fields belong in the SSH payload.
             payload = dict(kind='action', command=action['command'],
                            cwd=action.get('cwd') or '', timeout=action['timeout'])
+            if 'argv' in action:
+                payload['argv'] = action['argv']
             return dict(args=self.ssh(payload), shell=False, cwd=None)
+        if 'argv' in action:
+            return dict(args=action['argv'], shell=False, cwd=action.get('cwd') or None)
         return dict(args=action['command'], shell=True, cwd=action.get('cwd') or None)
 
     def metrics(self):
         if self.mode == 'ssh':
-            result = subprocess.run(self.ssh({'kind': 'metrics'}), capture_output=True, text=True, timeout=10)
+            env = {key: value for key, value in os.environ.items() if not key.upper().startswith('ORCA_')}
+            result = run_bounded(self.ssh({'kind': 'metrics'}), timeout=10, max_output=1024 * 1024, env=env)
             if result.returncode:
                 raise RuntimeError('Host metrics unavailable. Check SSH access and Python/psutil on the host.')
             data = json.loads(result.stdout)
@@ -122,22 +131,16 @@ class Execution:
                                     cwd='', timeout=timeout))
         else:
             command = [sys.executable, '-u', '-c', loader]
-        env = {key: value for key, value in os.environ.items() if not key.startswith('ORCA_')}
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                   stdin=subprocess.DEVNULL, env=env, start_new_session=os.name != 'nt')
+        env = {key: value for key, value in os.environ.items() if not key.upper().startswith('ORCA_')}
         try:
-            output, error = process.communicate(timeout=timeout + (15 if self.mode == 'ssh' else 0))
+            process = run_bounded(command, timeout=timeout + (15 if self.mode == 'ssh' else 0),
+                                  max_output=32 * 1024 * 1024, env=env)
         except subprocess.TimeoutExpired:
-            if os.name == 'nt':
-                subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=10)
-            else:
-                os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
             raise RuntimeError('Docker query exceeded its time limit.')
         if process.returncode:
-            raise RuntimeError(error.strip()[-500:] or 'Docker query failed on the execution target.')
+            raise RuntimeError(process.stderr.strip()[-500:] or 'Docker query failed on the execution target.')
         try:
-            result = json.loads(output)
+            result = json.loads(process.stdout)
         except ValueError:
             raise RuntimeError('Docker query returned invalid data.')
         if result.get('error'):

@@ -8,10 +8,84 @@ or changes to its deployment files. Swarm tasks need manager-level discovery.
 """
 import argparse
 import json
+import os
 import re
+import signal
 import subprocess
 import sys
+import threading
+import time
 from collections import defaultdict
+
+
+MAX_DOCKER_OUTPUT = 16 * 1024 * 1024
+
+
+def terminate_process(process):
+    """Stop a process and its children; callers create a new process session."""
+    try:
+        if os.name == 'nt':
+            subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if process.poll() is None:
+        try:
+            process.kill()
+        except OSError:
+            pass
+
+
+def run_bounded(args, timeout, max_output=MAX_DOCKER_OUTPUT, env=None, stdin=None):
+    """Capture CLI output without trusting the size of daemon/registry responses."""
+    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               stdin=subprocess.DEVNULL if stdin is None else stdin, env=env,
+                               start_new_session=os.name != 'nt')
+    buffers = [bytearray(), bytearray()]
+    exceeded = threading.Event()
+    lock = threading.Lock()
+    total = 0
+    deadline = time.monotonic() + timeout
+
+    def read(stream, buffer):
+        nonlocal total
+        try:
+            while chunk := stream.read1(65536):
+                with lock:
+                    if total + len(chunk) > max_output:
+                        exceeded.set()
+                    else:
+                        total += len(chunk)
+                        buffer.extend(chunk)
+                if exceeded.is_set():
+                    terminate_process(process)
+                    break
+        finally:
+            stream.close()
+
+    readers = [threading.Thread(target=read, args=(stream, buffer), daemon=True)
+               for stream, buffer in zip((process.stdout, process.stderr), buffers)]
+    for reader in readers:
+        reader.start()
+    try:
+        process.wait(timeout=timeout)
+        # A child may keep the pipes open after the CLI itself exits.
+        for reader in readers:
+            reader.join(max(0, deadline - time.monotonic()))
+        if any(reader.is_alive() for reader in readers):
+            raise subprocess.TimeoutExpired(args, timeout)
+        if exceeded.is_set():
+            raise RuntimeError('Command response exceeded its output limit.')
+        return subprocess.CompletedProcess(args, process.returncode,
+            *(bytes(buffer).decode('utf-8', errors='replace') for buffer in buffers))
+    finally:
+        if process.poll() is None or any(reader.is_alive() for reader in readers):
+            terminate_process(process)
+        process.wait()
+        for reader in readers:
+            reader.join(1)
 
 
 class Docker:
@@ -20,8 +94,7 @@ class Docker:
 
     def text(self, *args):
         try:
-            result = subprocess.run(self.prefix + list(args), capture_output=True,
-                                    text=True, timeout=30, stdin=subprocess.DEVNULL)
+            result = run_bounded(self.prefix + list(args), timeout=30)
         except FileNotFoundError as error:
             raise RuntimeError('Docker CLI is not installed.') from error
         except subprocess.TimeoutExpired as error:
@@ -158,4 +231,3 @@ def check_apps(docker, app=None):
         results.append(dict(kind=kind, name=name, status=status, containers=records))
     return dict(scope='Existing containers on the selected Docker endpoint only.',
                 apps=results, warnings=warnings)
-

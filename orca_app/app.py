@@ -1,5 +1,6 @@
 import hmac
 import hashlib
+import ipaddress
 import os
 import platform
 import secrets
@@ -11,9 +12,8 @@ from collections import defaultdict, deque
 from datetime import timedelta
 from functools import wraps
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
-import requests
 from dotenv import load_dotenv
 from flask import Flask, abort, jsonify, render_template, request, session
 from werkzeug.exceptions import HTTPException
@@ -22,6 +22,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .docker_service import BUILTINS, DockerService
 from .execution import Execution
 from .jobs import Busy, Jobs
+from .proxy import proxy_request
 from .store import Store
 
 
@@ -51,6 +52,12 @@ def create_app(overrides=None):
     password_hash = generate_password_hash(app.config['ADMIN_PASSWORD'])
     store = Store(app.config['DATABASE'])
     app.extensions['store'] = store
+    # Cookies identify a revocable server-side session. Bind it to this role and
+    # password so a password change invalidates previously issued sessions.
+    session_fingerprint = hmac.new(app.config['SECRET_KEY'].encode(),
+                                   (role + '\0' + app.config['ADMIN_PASSWORD']).encode(),
+                                   hashlib.sha256).hexdigest()
+    store.prune_sessions(time.time())
     execution = Execution() if role == 'client' else None
     if execution:
         execution.self_token_hash = hashlib.sha256(app.config['CLIENT_TOKEN'].encode()).hexdigest()
@@ -64,7 +71,23 @@ def create_app(overrides=None):
     cached_metrics = {'at': 0, 'data': None}
 
     def authenticated():
-        return session.get('admin') is True
+        identifier = session.get('sid')
+        if session.get('admin') is not True or not isinstance(identifier, str):
+            return False
+        key = hashlib.sha256(identifier.encode()).hexdigest()
+        saved = store.get('admin-sessions', key)
+        if not saved:
+            return False
+        if saved['expires'] <= time.time() or not hmac.compare_digest(saved['fingerprint'], session_fingerprint):
+            store.delete('admin-sessions', key)
+            session.clear()
+            return False
+        return True
+
+    def revoke_session():
+        identifier = session.get('sid')
+        if isinstance(identifier, str):
+            store.delete('admin-sessions', hashlib.sha256(identifier.encode()).hexdigest())
 
     def token_authenticated():
         expected = app.config['CLIENT_TOKEN']
@@ -107,16 +130,34 @@ def create_app(overrides=None):
 
     def url(value, base=False):
         try:
+            # Browsers and HTTP libraries disagree on backslashes and stripped
+            # controls. Reject ambiguous addresses before parsing either way.
+            if any(ord(character) < 33 or ord(character) == 127 for character in value) or '\\' in value:
+                raise ValueError()
             parsed = urlsplit(value)
-            valid = parsed.scheme in ('http', 'https') and parsed.hostname and not parsed.username and not parsed.password
-            _ = parsed.port
-            if base:
-                valid = valid and parsed.path in ('', '/') and not parsed.query and not parsed.fragment
+            valid = parsed.scheme in ('http', 'https') and parsed.hostname and parsed.username is None and parsed.password is None
             if not valid:
                 raise ValueError()
-        except ValueError:
+            if '%' in parsed.hostname:
+                raise ValueError()
+            if ':' in parsed.hostname:
+                ipaddress.IPv6Address(parsed.hostname)
+                remainder = parsed.netloc[parsed.netloc.index(']') + 1:]
+                if remainder and (not remainder.startswith(':') or not remainder[1:].isascii() or not remainder[1:].isdigit()):
+                    raise ValueError()
+            else:
+                host = parsed.hostname.encode('idna').decode('ascii')
+                if not host or any(not (character.isalnum() or character in '.-_') for character in host):
+                    raise ValueError()
+            if parsed.netloc.endswith(':') or parsed.port == 0:
+                raise ValueError()
+            if base:
+                valid = valid and parsed.path in ('', '/') and '?' not in value and '#' not in value
+            if not valid:
+                raise ValueError()
+        except (ValueError, UnicodeError):
             abort(400, 'Use an HTTP or HTTPS address, without credentials' + (' or a path.' if base else '.'))
-        return value.rstrip('/') if base else value
+        return urlunsplit((parsed.scheme, parsed.netloc, '', '', '')) if base else value
 
     def require_role(expected):
         if role != expected:
@@ -146,10 +187,11 @@ def create_app(overrides=None):
 
     @app.get('/api/session')
     def session_info():
+        admin = authenticated()
         session.setdefault('csrf', secrets.token_urlsafe(32))
-        return jsonify(admin=authenticated(), csrf=session['csrf'], role=role,
+        return jsonify(admin=admin, csrf=session['csrf'], role=role,
                        admin_title=app.config['ADMIN_TITLE'], public_title=app.config['PUBLIC_TITLE'],
-                       client_name=app.config['CLIENT_NAME'] if authenticated() else None)
+                       client_name=app.config['CLIENT_NAME'] if admin else None)
 
     @app.post('/api/login')
     def login():
@@ -173,14 +215,20 @@ def create_app(overrides=None):
             abort(401, 'Incorrect password.')
         with auth_lock:
             failures.pop(key, None)
+        revoke_session()
         session.clear()
-        session.update(admin=True, csrf=secrets.token_urlsafe(32))
+        identifier = secrets.token_urlsafe(32)
+        store.prune_sessions(time.time())
+        store.put('admin-sessions', dict(id=hashlib.sha256(identifier.encode()).hexdigest(),
+                  expires=time.time() + app.permanent_session_lifetime.total_seconds(), fingerprint=session_fingerprint))
+        session.update(admin=True, sid=identifier, csrf=secrets.token_urlsafe(32))
         session.permanent = True
         return session_info()
 
     @app.post('/api/logout')
     @protect()
     def logout():
+        revoke_session()
         session.clear()
         return jsonify(ok=True)
 
@@ -213,8 +261,7 @@ def create_app(overrides=None):
     @protect()
     def save_shortcut(key=None):
         require_role('orchestrator')
-        if key:
-            record('shortcuts', key)
+        previous = record('shortcuts', key) if key else {}
         data = body()
         visibility = data.get('visibility', 'admin')
         if visibility not in ('shared', 'admin'):
@@ -222,8 +269,11 @@ def create_app(overrides=None):
         open_in = data.get('open_in', 'new_tab')
         if open_in not in ('new_tab', 'same_tab'):
             abort(400, 'Invalid tab preference.')
+        favicon_url = text(data, 'favicon_url', 2048, optional=True) if 'favicon_url' in data else previous.get('favicon_url', '')
+        if favicon_url:
+            favicon_url = url(favicon_url)
         return jsonify(store.put('shortcuts', dict(id=key or uuid.uuid4().hex, name=text(data, 'name'),
-                    url=url(text(data, 'url', 2048)), visibility=visibility, open_in=open_in)))
+                    url=url(text(data, 'url', 2048)), favicon_url=favicon_url, visibility=visibility, open_in=open_in)))
 
     @app.delete('/api/shortcuts/<key>')
     @protect()
@@ -247,8 +297,8 @@ def create_app(overrides=None):
         previous = record('clients', key) if key else {}
         data = body()
         token = text(data, 'token', 512, optional=bool(key)) or previous.get('token', '')
-        if len(token) < 32:
-            abort(400, 'Client token must contain at least 32 characters.')
+        if len(token) < 32 or not token.isascii() or any(ord(character) < 33 or ord(character) == 127 for character in token):
+            abort(400, 'Client token must contain at least 32 visible ASCII characters without spaces.')
         item = dict(id=key or uuid.uuid4().hex, name=text(data, 'name'), url=url(text(data, 'url', 2048), base=True), token=token)
         store.put('clients', item)
         return jsonify({k: v for k, v in item.items() if k != 'token'})
@@ -285,29 +335,11 @@ def create_app(overrides=None):
         client = record('clients', key)
         payload = body() if request.method in ('POST', 'PUT') else None
         try:
-            with requests.Session() as transport:
-                transport.trust_env = False
-                with transport.request(request.method, client['url'] + '/api/host/' + endpoint,
-                                       headers={'Authorization': 'Bearer ' + client['token']}, json=payload,
-                                       timeout=(3, 65 if endpoint.startswith('docker') else 10), allow_redirects=False, stream=True) as response:
-                    if 300 <= response.status_code < 400:
-                        abort(502, 'Client redirected the request. Check its configured address.')
-                    content = bytearray()
-                    for chunk in response.iter_content(16384):
-                        content.extend(chunk)
-                        if len(content) > 1048576:
-                            abort(502, 'Client response exceeded the size limit.')
-                    import json
-                    try:
-                        value = json.loads(content)
-                    except (ValueError, UnicodeDecodeError):
-                        abort(502, 'Client returned an invalid response.')
-                    # A remote auth failure must not log out the orchestrator session.
-                    if response.status_code in (401, 403):
-                        abort(502, 'Client authentication failed. Check the saved client token.')
-                    return jsonify(value), response.status_code
-        except requests.RequestException:
-            abort(502, 'Client is unreachable. Check its address, service, and network access.')
+            value, status = proxy_request(request.method, client['url'] + '/api/host/' + endpoint,
+                                          client['token'], payload, 65 if endpoint.startswith('docker') else 10)
+            return jsonify(value), status
+        except RuntimeError as error:
+            abort(502, str(error))
 
     @app.get('/api/host/metrics')
     @protect(machine=True)

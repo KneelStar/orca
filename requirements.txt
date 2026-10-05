@@ -3,3 +3,8 @@ psutil==7.2.2
 requests==2.34.2
 python-dotenv==1.2.4
 waitress==3.0.2
+# Pin security-sensitive transitive dependencies so existing environments cannot
+# retain versions affected by known file-serving, template, or HTTP vulnerabilities.
+Werkzeug==3.1.9
+Jinja2==3.1.6
+urllib3==2.8.0

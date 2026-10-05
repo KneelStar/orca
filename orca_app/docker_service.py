@@ -107,8 +107,9 @@ class DockerService:
             raise ValueError('This operation is unavailable for the current container state or deployment manager.')
         if row['self_update'] and operation in ('stop', 'pause', 'restart'):
             raise ValueError('Control this Orca client using an external executor.')
+        argv = self.execution.docker_prefix + ['container', operation, identifier]
         return self.jobs.start(dict(id='docker-' + operation, name=operation.title() + ' ' + row['name'],
-            command=shlex.join(self.execution.docker_prefix + ['container', operation, identifier]),
+            command=shlex.join(argv), argv=argv,
             cwd='', timeout=120, kind='docker-control'), after=self.invalidate)
 
     def check(self):

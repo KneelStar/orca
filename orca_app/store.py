@@ -1,22 +1,50 @@
 import json
 import os
 import sqlite3
+import stat
 from pathlib import Path
+
+
+class _StoreConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
 
 
 class Store:
     def __init__(self, path):
-        self.path = str(path)
-        Path(path).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.path = str(Path(path).absolute())
+        self.uri = Path(self.path).as_uri() + '?mode=rw'
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # Set restrictive permissions before SQLite can write credentials or
+        # create journal files. chmod after connecting leaves an exposure window.
+        self._secure_file(create=True)
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS records (kind TEXT, id TEXT, value TEXT, PRIMARY KEY(kind,id))')
             db.execute('CREATE TABLE IF NOT EXISTS ordering (kind TEXT PRIMARY KEY, ids TEXT NOT NULL)')
 
-        if os.name != 'nt':
-            os.chmod(self.path, 0o600)
+    def _secure_file(self, create=False):
+        flags = os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+        if create:
+            flags |= os.O_CREAT
+        descriptor = os.open(self.path, flags, 0o600)
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError('Database must be a regular file.')
+            if os.name != 'nt':
+                if info.st_uid != os.geteuid() or info.st_nlink != 1:
+                    raise ValueError('Database must be owned by the service user and have no hard links.')
+                os.fchmod(descriptor, 0o600)
+        finally:
+            os.close(descriptor)
 
     def connect(self):
-        return sqlite3.connect(self.path, timeout=10)
+        self._secure_file()
+        # Never silently recreate a removed database with SQLite's default mode.
+        return sqlite3.connect(self.uri, timeout=10, uri=True, factory=_StoreConnection)
 
     def all(self, kind, items=None):
         with self.connect() as db:
@@ -52,6 +80,13 @@ class Store:
     def delete(self, kind, key):
         with self.connect() as db:
             return db.execute('DELETE FROM records WHERE kind=? AND id=?', (kind, key)).rowcount > 0
+
+    def prune_sessions(self, now):
+        with self.connect() as db:
+            return db.execute("""
+                DELETE FROM records WHERE kind = 'admin-sessions'
+                AND json_extract(value, '$.expires') <= ?
+            """, (now,)).rowcount
 
     def prune_jobs(self, cutoff):
         # Delete only finished run records; action definitions and running jobs survive.

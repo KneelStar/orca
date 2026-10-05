@@ -10,16 +10,45 @@ const dragHandle = (kind,item) => `<button class="icon-button drag-handle" data-
 const show = (selector, visible) => {$(selector).hidden = !visible;};
 const isAdmin = () => state.session?.admin && !state.preview;
 const isFleet = () => state.session?.role === 'orchestrator';
-function fail(error) { $('#error').textContent = error.message || String(error); show('#error', true); }
+function fail(error) { if(error.requestGeneration!==undefined && error.requestGeneration!==state.generation)return; $('#error').textContent = error.message || String(error); show('#error', true); }
 function clearError() { show('#error', false); }
 async function api(path, method='GET', data) {
-  const response = await fetch(path, {method, credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':state.session?.csrf || ''}, body:data === undefined ? undefined : JSON.stringify(data)});
-  const value = await response.json();
-  if (!response.ok) throw new Error(value.error || 'Request failed.');
-  return value;
+  const generation=state.generation;
+  try {
+    const response = await fetch(path, {method, credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':state.session?.csrf || ''}, body:data === undefined ? undefined : JSON.stringify(data)});
+    if(response.status===401 && path!=='/api/login' && state.session?.admin && generation===state.generation){
+      clearAdminSession();
+      // Refresh the public CSRF token and shortcuts after server-side expiration.
+      await load();
+    }
+    const value = await response.json();
+    if (!response.ok) throw new Error(value.error || 'Request failed.');
+    return value;
+  } catch(error) { error.requestGeneration=generation;throw error; }
 }
-function remotePath(endpoint) { return isFleet() ? '/api/clients/'+state.selected+'/remote/'+endpoint : '/api/host/'+endpoint; }
+function remotePath(endpoint) { return isFleet() ? '/api/clients/'+encodeURIComponent(state.selected)+'/remote/'+endpoint : '/api/host/'+endpoint; }
 function hideEditors() { ['client','shortcut','action'].forEach(k=>show('#'+k+'-editor',false)); show('#action-confirm',false); }
+function clearAdminSession() {
+  state.session={admin:false,role:state.session?.role,public_title:state.session?.public_title,csrf:''};
+  state.preview=false;clearPrivateState();
+}
+function clearPrivateState() {
+  // Remove sensitive values from memory and hidden DOM after sign-out or expiry.
+  state.generation++;state.historyRequest++;
+  state.clients=[];state.shortcuts=[];state.metrics.clear();state.selected=null;state.actions=[];state.orcaActions=[];
+  state.job=null;state.historyJob=null;state.historyId='';state.starting=false;
+  reordering=null;
+  resetDocker();hideEditors();show('#workspace',false);show('#fleet',false);show('#fleet-summary',false);
+  for(const selector of ['#add-client','#add-shortcut','#open-workspace','#preview'])show(selector,false);
+  for(const selector of ['#servers','#shortcuts','#actions','#orca-actions','#client-editor','#shortcut-editor','#action-editor','#action-confirm','#docker-dialog-body'])$(selector).replaceChildren();
+  for(const selector of ['#client-name','#client-address','#fleet-summary','#unavailable','#job-detail','#history-detail','#docker-dialog-title','#docker-dialog-error','#error'])$(selector).textContent='';
+  clearError();$('#auth-button').textContent='Admin login';
+  if(!state.session?.admin && state.session?.public_title){$('#page-title').textContent=state.session.public_title;document.title=state.session.public_title+' · Orca';}
+  $('#output').textContent='Run an action to view its output.';
+  $('#history-output').textContent='Select a run to view its output.';
+  $('#job-history').innerHTML='<option value="">No actions yet</option>';
+  $('#login-form').reset();
+}
 function setConsoleTab(name) {
   const quick=name==='quick';
   $('#quick-tab').classList.toggle('active',quick);
@@ -29,8 +58,11 @@ function setConsoleTab(name) {
   show('#quick-panel',quick);show('#recent-panel',!quick);
 }
 async function load() {
-  state.session = await api('/api/session');
-  if (!state.session.admin) state.preview = false;
+  const requestGeneration=state.generation,session=await api('/api/session');
+  if(requestGeneration!==state.generation)return;
+  state.session = session;
+  if (!state.session.admin) { state.preview = false; clearPrivateState(); }
+  const generation=state.generation;
   hideEditors();
   resetDocker();
   $('#page-title').textContent = isAdmin() ? (isFleet()?state.session.admin_title:state.session.client_name) : state.session.public_title;
@@ -46,9 +78,11 @@ async function load() {
   show('#workspace',false);
   show('#open-workspace',isAdmin() && !isFleet() && !state.selected);
   if (isFleet()) {
-    state.shortcuts = await api('/api/shortcuts'); renderShortcuts();
+    const shortcuts=await api('/api/shortcuts');if(generation!==state.generation)return;
+    state.shortcuts = shortcuts; renderShortcuts();
     if (isAdmin()) {
-      state.clients = await api('/api/clients');
+      const clients=await api('/api/clients');if(generation!==state.generation)return;
+      state.clients = clients;
       if (!state.clients.some(c=>c.id===state.selected)) state.selected=null;
       renderClients();
       await refreshMetrics();
@@ -64,13 +98,13 @@ function renderClients() {
     const m=state.metrics.get(c.id), d=m?.data;
     const disk=d?.disks?.length?Math.max(...d.disks.map(v=>v.percent)):null;
     const meters=[['CPU',d?.cpu],['RAM',d?.ram],['Disk (fullest)',disk]];
-    return `<div class="server-shell" data-item-id="${c.id}">${dragHandle('clients',c)}<button class="server ${c.id===state.selected?'selected':''}" data-select="${c.id}" aria-pressed="${c.id===state.selected}"><div class="row"><strong>${escapeHTML(c.name)}</strong><span class="${m?.ok?'status':'offline'}">${m?.ok?'● Online':m?'○ Unavailable':'Connecting'}</span></div><p class="muted">${escapeHTML(c.url)}${d?' · '+escapeHTML(d.os):''}</p><div class="meters">${meters.map(([label,value])=>`<div class="meter">${label}<b>${m?.ok && value != null?escapeHTML(value)+'%':'—'}</b></div>`).join('')}</div></button><button class="icon-button edit-control" data-edit-client="${c.id}" aria-label="Edit ${escapeHTML(c.name)}">${pencilIcon}</button></div>`;
+    return `<div class="server-shell" data-item-id="${escapeHTML(c.id)}">${dragHandle('clients',c)}<button class="server ${c.id===state.selected?'selected':''}" data-select="${escapeHTML(c.id)}" aria-pressed="${c.id===state.selected}"><div class="row"><strong>${escapeHTML(c.name)}</strong><span class="${m?.ok?'status':'offline'}">${m?.ok?'● Online':m?'○ Unavailable':'Connecting'}</span></div><p class="muted">${escapeHTML(c.url)}${d?' · '+escapeHTML(d.os):''}</p><div class="meters">${meters.map(([label,value])=>`<div class="meter">${label}<b>${m?.ok && value != null?escapeHTML(value)+'%':'—'}</b></div>`).join('')}</div></button><button class="icon-button edit-control" data-edit-client="${escapeHTML(c.id)}" aria-label="Edit ${escapeHTML(c.name)}">${pencilIcon}</button></div>`;
   }).join('') : '<p class="empty">Add your first client to manage its actions and see system metrics.</p>';
 }
 function renderShortcuts() {
   if(reordering?.kind==='shortcuts')return;
   const items=state.shortcuts.filter(s=>isAdmin()||s.visibility==='shared');
-  $('#shortcuts').innerHTML=items.length?items.map(s=>`<div class="shortcut-shell" data-item-id="${s.id}">${isAdmin()?dragHandle('shortcuts',s):''}<a class="shortcut" aria-label="${escapeHTML(s.name)}" href="${escapeHTML(s.url)}" target="${s.open_in==='same_tab'?'_self':'_blank'}" rel="noopener noreferrer"><span class="shortcut-icon" aria-hidden="true"><span>↗</span><img src="${escapeHTML(new URL('/favicon.ico',s.url).href)}" alt="" referrerpolicy="no-referrer"></span><div class="shortcut-copy"><h3>${escapeHTML(s.name)}${isAdmin()?` <span class="muted">- ${s.visibility==='shared'?'Shared':'Admin only'}</span>`:''}</h3><p class="muted shortcut-url" title="${escapeHTML(s.url)}">${escapeHTML(s.url)}</p></div></a>${isAdmin()?`<button class="icon-button edit-control" data-edit-shortcut="${s.id}" aria-label="Edit ${escapeHTML(s.name)}">${pencilIcon}</button>`:''}</div>`).join(''):'<p class="empty">No shortcuts yet.</p>';
+  $('#shortcuts').innerHTML=items.length?items.map(s=>`<div class="shortcut-shell" data-item-id="${escapeHTML(s.id)}">${isAdmin()?dragHandle('shortcuts',s):''}<a class="shortcut" aria-label="${escapeHTML(s.name)}" href="${escapeHTML(s.url)}" target="${s.open_in==='same_tab'?'_self':'_blank'}" rel="noopener noreferrer"><span class="shortcut-icon" aria-hidden="true"><span>↗</span><img src="${escapeHTML(s.favicon_url || new URL('/favicon.ico',s.url).href)}" alt="" referrerpolicy="no-referrer"></span><div class="shortcut-copy"><h3>${escapeHTML(s.name)}${isAdmin()?` <span class="muted">- ${s.visibility==='shared'?'Shared':'Admin only'}</span>`:''}</h3><p class="muted shortcut-url" title="${escapeHTML(s.url)}">${escapeHTML(s.url)}</p></div></a>${isAdmin()?`<button class="icon-button edit-control" data-edit-shortcut="${escapeHTML(s.id)}" aria-label="Edit ${escapeHTML(s.name)}">${pencilIcon}</button>`:''}</div>`).join(''):'<p class="empty">No shortcuts yet.</p>';
   $('#shortcuts').querySelectorAll('img').forEach(img=>{
     const update=()=>{img.hidden=!img.naturalWidth;img.previousElementSibling.hidden=!!img.naturalWidth;};
     img.onload=update;img.onerror=update;if(img.complete && img.naturalWidth)update();
@@ -82,7 +116,7 @@ async function refreshMetrics() {
   const wasUnavailable=state.metrics.get(state.selected)?.ok!==true;
   const clients=isFleet()?state.clients:[{id:'local'}];
   await Promise.all(clients.map(async c=>{
-    try { const d=await api(isFleet()?'/api/clients/'+c.id+'/remote/metrics':'/api/host/metrics'); if(generation===state.generation)state.metrics.set(c.id,{ok:true,data:d}); }
+    try { const d=await api(isFleet()?'/api/clients/'+encodeURIComponent(c.id)+'/remote/metrics':'/api/host/metrics'); if(generation===state.generation)state.metrics.set(c.id,{ok:true,data:d}); }
     catch(e) { if(generation===state.generation)state.metrics.set(c.id,{ok:false,error:e.message}); }
   }));
   if(generation!==state.generation||!isAdmin())return;
@@ -118,19 +152,19 @@ async function selectClient(id) {
   state.actions=actions;state.orcaActions=orcaActions;renderActions();renderHistory(jobs);
   const running=jobs.find(j=>j.status==='running');
   if(running){
-    const job=await api(remotePath('jobs/'+running.id));
+    const job=await api(remotePath('jobs/'+encodeURIComponent(running.id)));
     if(generation===state.generation){state.job=job;renderJob();renderActions();}
   }
 }
 function renderActions() {
   if(['actions','orcaActions'].includes(reordering?.kind))return;
   const running=state.starting || state.job?.status==='running';
-  $('#orca-actions').innerHTML=state.orcaActions.map(a=>`<div class="action-shell" data-item-id="${a.id}">${dragHandle('orcaActions',a)}<button class="action-run" data-run="${a.id}" ${running?'disabled':''}>${escapeHTML(a.name)}</button></div>`).join('');
+  $('#orca-actions').innerHTML=state.orcaActions.map(a=>`<div class="action-shell" data-item-id="${escapeHTML(a.id)}">${dragHandle('orcaActions',a)}<button class="action-run" data-run="${escapeHTML(a.id)}" ${running?'disabled':''}>${escapeHTML(a.name)}</button></div>`).join('');
   renderDocker();
-  $('#actions').innerHTML=state.actions.length?state.actions.map(a=>`<div class="action-shell" data-item-id="${a.id}">${dragHandle('actions',a)}<button class="action-run" data-run="${a.id}" ${running?'disabled':''}>${escapeHTML(a.name)}</button><button class="icon-button" data-info-action="${a.id}" aria-label="Information about ${escapeHTML(a.name)}">${infoIcon}</button><button class="icon-button" data-edit-action="${a.id}" aria-label="Edit ${escapeHTML(a.name)}">${pencilIcon}</button></div>`).join(''):'<p class="empty">Add a command to create your first action.</p>';
+  $('#actions').innerHTML=state.actions.length?state.actions.map(a=>`<div class="action-shell" data-item-id="${escapeHTML(a.id)}">${dragHandle('actions',a)}<button class="action-run" data-run="${escapeHTML(a.id)}" ${running?'disabled':''}>${escapeHTML(a.name)}</button><button class="icon-button" data-info-action="${escapeHTML(a.id)}" aria-label="Information about ${escapeHTML(a.name)}">${infoIcon}</button><button class="icon-button" data-edit-action="${escapeHTML(a.id)}" aria-label="Edit ${escapeHTML(a.name)}">${pencilIcon}</button></div>`).join(''):'<p class="empty">Add a command to create your first action.</p>';
 }
 function renderHistory(jobs) {
-  $('#job-history').innerHTML='<option value="">'+(jobs.length?'Select a run':'No actions yet')+'</option>'+jobs.map(j=>`<option value="${j.id}">${escapeHTML(j.name)} · ${escapeHTML(j.status)} · ${escapeHTML(new Date(j.started*1000).toLocaleString())}</option>`).join('');
+  $('#job-history').innerHTML='<option value="">'+(jobs.length?'Select a run':'No actions yet')+'</option>'+jobs.map(j=>`<option value="${escapeHTML(j.id)}">${escapeHTML(j.name)} · ${escapeHTML(j.status)} · ${escapeHTML(new Date(j.started*1000).toLocaleString())}</option>`).join('');
   $('#job-history').value=state.historyId;
 }
 async function selectJob(id) {
@@ -140,7 +174,7 @@ async function selectJob(id) {
   show('#history-detail',false);
   if(!id)return;
   try {
-    const job=await api(remotePath('jobs/'+id));
+    const job=await api(remotePath('jobs/'+encodeURIComponent(id)));
     if(generation!==state.generation || request!==state.historyRequest)return;
     state.historyJob=job;renderJob(job,true);
   } catch(e) {
@@ -166,37 +200,38 @@ function edit(kind,item=null) {
   box.dataset.item=item?.id || 'new';
   let fields='';
   if(kind==='client')fields=input('Name','name',item?.name)+input('Client address (include port)','url',item?.url||'http://','url')+input(item?'Client token (blank keeps current)':'Client token','token','','password',!item);
-  if(kind==='shortcut')fields=input('Name','name',item?.name)+input('URL','url',item?.url||'https://','url')+`<label>Visibility<select name="visibility"><option value="admin" ${item?.visibility!=='shared'?'selected':''}>Admin only</option><option value="shared" ${item?.visibility==='shared'?'selected':''}>Shared</option></select></label><label>Open in<select name="open_in"><option value="new_tab" ${item?.open_in!=='same_tab'?'selected':''}>New tab</option><option value="same_tab" ${item?.open_in==='same_tab'?'selected':''}>Same tab</option></select></label>`;
+  if(kind==='shortcut')fields=input('Name','name',item?.name)+input('URL','url',item?.url||'https://','url')+input('Favicon URL (optional)','favicon_url',item?.favicon_url||'','url',false)+`<label>Visibility<select name="visibility"><option value="admin" ${item?.visibility!=='shared'?'selected':''}>Admin only</option><option value="shared" ${item?.visibility==='shared'?'selected':''}>Shared</option></select></label><label>Open in<select name="open_in"><option value="new_tab" ${item?.open_in!=='same_tab'?'selected':''}>New tab</option><option value="same_tab" ${item?.open_in==='same_tab'?'selected':''}>Same tab</option></select></label>`;
   if(kind==='action')fields=input('Name','name',item?.name)+input('Working directory (optional)','cwd',item?.cwd||'','text',false)+`<label class="full">Command<textarea name="command" rows="3" required>${escapeHTML(item?.command||'')}</textarea></label>`+input('Timeout (seconds)','timeout',item?.timeout||3600,'number');
   box.innerHTML=`<h2>${item?'Edit':'Add'} ${kind}</h2><form><div class="fields">${fields}</div><div class="row"><button class="primary">Save ${kind}</button><button type="button" data-close="${kind}-editor">Cancel</button>${item?'<div class="grow"></div><button type="button" class="danger" data-delete>Delete</button>':''}</div></form>`;
   box.hidden=false;box.querySelector('input').focus();
-  const selected=state.selected;
+  const selected=state.selected,generation=state.generation;
   const base=kind==='client'?'/api/clients':kind==='shortcut'?'/api/shortcuts':remotePath('actions');
   box.querySelector('form').onsubmit=async event=>{
     event.preventDefault();const button=event.submitter;button.disabled=true;
     try {
       const data=Object.fromEntries(new FormData(event.target));if(kind==='action')data.timeout=Number(data.timeout);
-      await api(base+(item?'/'+item.id:''),item?'PUT':'POST',data);box.hidden=true;
-      if(kind==='action'&&selected===state.selected){state.actions=await api(remotePath('actions'));renderActions();}
-      else if(kind==='shortcut'){state.shortcuts=await api('/api/shortcuts');renderShortcuts();}
+      await api(base+(item?'/'+encodeURIComponent(item.id):''),item?'PUT':'POST',data);
+      if(generation!==state.generation)return;box.hidden=true;
+      if(kind==='action'&&selected===state.selected){const actions=await api(remotePath('actions'));if(generation!==state.generation)return;state.actions=actions;renderActions();}
+      else if(kind==='shortcut'){const shortcuts=await api('/api/shortcuts');if(generation!==state.generation)return;state.shortcuts=shortcuts;renderShortcuts();}
       else await load();
     } catch(e){fail(e);} finally{button.disabled=false;}
   };
   if(item)box.querySelector('[data-delete]').onclick=async()=>{
     if(!confirm(`Delete ${kind} “${item.name}”?${kind==='client'?' This only removes it from Orca.':''}`))return;
-    try{await api(base+'/'+item.id,'DELETE');box.hidden=true;if(kind==='action'){state.actions=await api(remotePath('actions'));renderActions();}else await load();}catch(e){fail(e);}
+    try{await api(base+'/'+encodeURIComponent(item.id),'DELETE');if(generation!==state.generation)return;box.hidden=true;if(kind==='action'){const actions=await api(remotePath('actions'));if(generation!==state.generation)return;state.actions=actions;renderActions();}else await load();}catch(e){if(generation===state.generation)fail(e);}
   };
 }
 function showActionInfo(id) {
   const a=state.actions.find(a=>a.id===id);if(!a)return;
   show('#action-editor',false);
   const box=$('#action-confirm');box.hidden=false;
-  box.innerHTML=`<div class="row"><h3>${escapeHTML(a.name)}</h3><div class="grow"></div><button class="icon-button" data-close="action-confirm" aria-label="Close action details">X</button></div><pre class="action-command">${escapeHTML(a.command)}</pre><dl class="action-metadata"><div><dt>Working directory</dt><dd>${escapeHTML(a.cwd||'Client service working directory')}</dd></div><div><dt>Timeout</dt><dd>Timeout: ${a.timeout}s</dd></div></dl>`;
+  box.innerHTML=`<div class="row"><h3>${escapeHTML(a.name)}</h3><div class="grow"></div><button class="icon-button" data-close="action-confirm" aria-label="Close action details">X</button></div><pre class="action-command">${escapeHTML(a.command)}</pre><dl class="action-metadata"><div><dt>Working directory</dt><dd>${escapeHTML(a.cwd||'Client service working directory')}</dd></div><div><dt>Timeout</dt><dd>Timeout: ${escapeHTML(a.timeout)}s</dd></div></dl>`;
 }
 async function runAction(id) {
   if(state.starting || state.job?.status==='running')return;
   const a=[...state.actions,...state.orcaActions].find(a=>a.id===id);if(!a)return;
-  const generation=state.generation,path=remotePath((a.builtin?'orca-actions/':'actions/')+id+'/run');
+  const generation=state.generation,path=remotePath((a.builtin?'orca-actions/':'actions/')+encodeURIComponent(id)+'/run');
   clearError();
   state.starting=true;renderActions();
   try{
@@ -221,7 +256,7 @@ document.addEventListener('click',event=>{
 $('#add-client').onclick=()=>edit('client');$('#add-shortcut').onclick=()=>edit('shortcut');$('#add-action').onclick=()=>edit('action');
 $('#auth-button').onclick=async()=>{
   if(!state.session?.admin){show('#login',true);$('#login input').focus();return;}
-  try{await api('/api/logout','POST',{});state.generation++;state.clients=[];state.metrics.clear();state.selected=null;state.job=null;state.actions=[];await load();}catch(e){fail(e);}
+  try{await api('/api/logout','POST',{});clearAdminSession();await load();}catch(e){fail(e);}
 };
 $('#login-form').onsubmit=async event=>{
   event.preventDefault();const button=event.submitter;button.disabled=true;clearError();
@@ -242,12 +277,12 @@ setInterval(async()=>{
   state.polling=true;const generation=state.generation;
   try{
     if(state.job?.status==='running'){
-      const job=await api(remotePath('jobs/'+state.job.id));
+      const job=await api(remotePath('jobs/'+encodeURIComponent(state.job.id)));
       if(generation===state.generation){state.job=job;renderJob();renderDockerProgress();if(job.status!=='running'){refreshDocker(true);renderActions();const jobs=await api(remotePath('jobs'));if(generation===state.generation)renderHistory(jobs);}}
     }
     if(generation===state.generation && state.historyJob?.status==='running'){
       const request=state.historyRequest,id=state.historyId;
-      const job=state.job?.id===id?state.job:await api(remotePath('jobs/'+id));
+      const job=state.job?.id===id?state.job:await api(remotePath('jobs/'+encodeURIComponent(id)));
       if(generation===state.generation && request===state.historyRequest){state.historyJob=job;renderJob(job,true);}
     }
     if(++ticks%5===0){await refreshMetrics();await refreshDocker();}
@@ -269,6 +304,9 @@ $('#open-workspace').onclick=async()=>{
 
 const reorderLists={clients:'#servers',actions:'#actions',orcaActions:'#orca-actions',shortcuts:'#shortcuts'};
 const reorderRender={clients:renderClients,actions:renderActions,orcaActions:renderActions,shortcuts:renderShortcuts};
+function focusReorder(kind,id) {
+  [...$(reorderLists[kind]).querySelectorAll('[data-item-id]')].find(item=>item.dataset.itemId===id)?.querySelector('.drag-handle')?.focus({preventScroll:true});
+}
 function beginReorder(handle) {
   if(reordering || !isAdmin())return null;
   clearError();
@@ -282,7 +320,7 @@ function cancelReorder() {
   if(!reordering || reordering.saving)return;
   const {kind,item}=reordering,id=item.dataset.itemId;
   reordering=null;reorderRender[kind]();
-  $(reorderLists[kind]).querySelector(`[data-item-id="${id}"] .drag-handle`)?.focus({preventScroll:true});
+  focusReorder(kind,id);
 }
 async function saveReorder() {
   const current=reordering;if(!current)return;
@@ -304,7 +342,7 @@ async function saveReorder() {
   }finally{
     const id=current.item.dataset.itemId;
     current.list.classList.remove('saving-order');reordering=null;reorderRender[current.kind]();
-    $(reorderLists[current.kind]).querySelector(`[data-item-id="${id}"] .drag-handle`)?.focus({preventScroll:true});
+    focusReorder(current.kind,id);
   }
 }
 document.addEventListener('pointerdown',event=>{

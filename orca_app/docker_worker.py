@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import sys
 import time
 
 from .image_updates import Docker, registry_image_id
@@ -24,6 +25,10 @@ def recipe_for(docker, labels):
     cwd = labels.get('com.docker.compose.project.working_dir', '')
     files = labels.get('com.docker.compose.project.config_files', '')
     env = labels.get('com.docker.compose.project.environment_file', '')
+    if sys.platform == 'win32':
+        # These templates use POSIX shell quoting, which cmd.exe does not honor.
+        return dict(command='', cwd=cwd, timeout=3600,
+                    reason='Provide a Windows update command for this Compose project.')
     reason = ''
     argv = docker.prefix + ['compose', '--project-name', project]
     paths = files.split(',') if files else []

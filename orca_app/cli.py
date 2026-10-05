@@ -8,7 +8,9 @@ def run(role=None):
         os.environ['ORCA_ROLE'] = role
     app = create_app()
     serve(app, host=os.getenv('ORCA_HOST', '0.0.0.0'),
-          port=int(os.getenv('ORCA_PORT', '8000' if app.config['ROLE'] == 'orchestrator' else '8001')), threads=8)
+          port=int(os.getenv('ORCA_PORT', '8000' if app.config['ROLE'] == 'orchestrator' else '8001')), threads=8,
+          # Waitress buffers bodies before Flask applies its own limit.
+          max_request_body_size=app.config['MAX_CONTENT_LENGTH'])
 
 
 def orchestrator():

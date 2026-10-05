@@ -2,7 +2,7 @@
 
 Orca is the central dashboard. **Orca Client** is an independent server manager installed on each machine. They share a Python package and image, but run as separate services with separate settings and databases. Clients never communicate with one another.
 
-Version 0.2.4 includes:
+Version 0.2.5 includes:
 
 - Single-admin password login, with server-side authorization and CSRF protection.
 - Saved clients, shared/admin-only URL shortcuts, and configurable page headings.
@@ -22,23 +22,25 @@ Interactive terminals and automatic scheduling are deferred.
 
 Python 3.10+, Flask, Waitress, SQLite, psutil, and plain HTML/CSS/JavaScript. No Node server, frontend build step, external database, or message broker. The orchestrator authenticates to clients with distinct bearer tokens; browsers do not receive those tokens. Output is polled once per second while a selected job runs. Metrics refresh every five seconds while the admin page is visible.
 
+Admin sessions expire eight hours after login. Logout revokes the session on the server, and changing the admin password invalidates earlier sessions. Installing these security fixes requires a fresh login because older cookies have no server-side session record. See [CHANGELOG.md](CHANGELOG.md - 0.2.5) for the findings and validation.
+
 ## Exporting a local image
 
 The orchestrator and client use the same image; `ORCA_ROLE` selects the service. Build and export it on a machine with Docker access:
 
 ```sh
-docker build -t orca:0.2.4 .
-docker save orca:0.2.4 | gzip > orca-0.2.4.tar.gz
+docker build -t orca:0.2.5 .
+docker save orca:0.2.5 | gzip > orca-0.2.5.tar.gz
 ```
 
-Copy `orca-0.2.4.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
+Copy `orca-0.2.5.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Load the image there:
 
 ```sh
-gunzip -c orca-0.2.4.tar.gz | docker load
+gunzip -c orca-0.2.5.tar.gz | docker load
 docker compose up -d
 ```
 
-The Compose files use `orca:0.2.4` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
+The Compose files use `orca:0.2.5` by default and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE` if you use another local tag. No registry or source checkout is needed on the deployment server.
 
 ## Docker: Orca orchestrator
 
@@ -56,7 +58,7 @@ Generate random secrets with `python3 -c "import secrets; print(secrets.token_ur
 docker compose up -d --build
 ```
 
-Visit the bound address and port. Shared visitors see only shared shortcuts. Use **Admin login** to add clients, private shortcuts, and actions.
+Visit the bound address and port. Shared visitors see only shared shortcuts. Use **Admin login** to add clients, private shortcuts, and actions. Shortcuts accept an optional **Favicon URL** for a manually chosen icon; leave it blank to use automatic favicon lookup.
 
 ## Docker: Orca Client
 
@@ -100,7 +102,7 @@ The script installs and enables the SSH server, installs Python/venv and sudo, c
 After successful setup, add or update these values in your existing client `.env`, preserving its passwords, session secret, client token, and port:
 
 ```dotenv
-ORCA_IMAGE=orca:0.2.4
+ORCA_IMAGE=orca:0.2.5
 ORCA_EXECUTION_MODE=ssh
 ORCA_SSH_TARGET=orca-run@host.docker.internal
 ORCA_SSH_PORT=22
@@ -155,6 +157,8 @@ The client detects its own container using its configured client token or contai
 
 The standalone equivalent remains available with `python3 scripts/check_app_updates.py` (`--context`, `--app`, and `--json` are supported). It prints results without writing Orca's database; use the built-in action to populate UI indicators.
 
+Native Windows clients require a manually configured Compose update command. Automatic templates use POSIX quoting and are only generated on POSIX execution targets. Docker lifecycle controls execute argument vectors directly on both platforms.
+
 ## Native startup
 
 Native execution is the simplest way for Orca Client to manage its host directly, and is supported by the code on Linux, macOS, and Windows. This milestone was exercised on Linux only.
@@ -207,7 +211,7 @@ An interrupted service marks unfinished jobs as interrupted on restart; it does 
 .venv-orca/bin/python -m unittest discover -s tests -v
 ```
 
-The tests cover authentication, CSRF, public visibility, persistence, host metrics, real client proxying, streamed output, concurrent action rejection, failures, timeouts, recovery, and SSH command construction. They open a localhost test server.
+The tests cover authentication, CSRF, public visibility, persistence, host metrics, real client proxying, streamed output, concurrent action rejection, failures, timeouts, recovery, and SSH command construction. Security regressions also cover cookie revocation, session isolation and expiry, proxy address validation, database permissions and connection cleanup, bounded subprocess output, and generated command execution. They open a localhost test server.
 
 A disposable local preview is available with:
 
@@ -220,5 +224,7 @@ It runs Orca at `http://127.0.0.1:8765` and an independent client at `http://127
 `tests/browser.cjs` checks the preview using Playwright, including mobile layout, adding actions/shortcuts, running a harmless command, direct client access, and private shortcut visibility. Supply `ORCA_PLAYWRIGHT` if the module isn't on Node's module path, and optionally `ORCA_BROWSER` for an existing Chromium executable.
 
 `tests/reorder.cjs` checks dragging all three lists, persistence after reloads and edits, rollback on save errors, keyboard movement, and mobile touch dragging against the same disposable preview.
+
+`tests/frontend-security.cjs` runs its own loopback fixture and checks hostile remote metadata, encoded request paths, and removal of private state after logout. Use the same `ORCA_PLAYWRIGHT` and `ORCA_BROWSER` options as the other browser tests.
 
 `tests/docker-browser.cjs` covers the Docker tab, accessible state descriptions, per-image indicators, shared command edits, exact confirmation, update progress, container recreation, lifecycle controls, history, and mobile layout. Run the preview with `ORCA_PREVIEW_DOCKER_FIXTURE=true` and ports 8875/8876 for this suite. Its Docker data is simulated and its update test runs only a harmless `printf`/`sleep` command. Backend tests also execute the bundled worker locally and through the SSH payload using a disposable fake Docker CLI.
