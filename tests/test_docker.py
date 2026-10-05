@@ -28,6 +28,7 @@ class FakeDocker:
     def __init__(self, folder):
         self.calls = []
         self.targets = {'web:latest': digest('b'), 'redis:7': digest('c')}
+        self.descriptors = {}
         self.rows = []
         for i, name, image, current, status in [('a','web','web:latest',digest('a'),'running'),
                                              ('b','redis','redis:7',digest('c'),'exited')]:
@@ -58,10 +59,12 @@ class FakeDocker:
         if args[:2] == ('image','inspect'):
             return [dict(Os='linux', Architecture='amd64')]
         if args[:3] == ('buildx','imagetools','inspect'):
-            if args[3] == '--format': return dict(os='linux',architecture='amd64')
+            if args[3] == '--format':
+                if args[4] == '{{json .Manifest}}': return dict(digest=self.descriptors[args[-1]])
+                return dict(os='linux',architecture='amd64')
             target=self.targets[args[-1]]
             if isinstance(target, Exception): raise target
-            return dict(config=dict(digest=target))
+            return target if isinstance(target, dict) else dict(config=dict(digest=target))
         raise AssertionError(args)
 
 
@@ -192,6 +195,33 @@ class DockerTests(unittest.TestCase):
         self.assertEqual(record['target'],digest('b'));self.assertIn('last_success',record)
         self.fake.rows[0]['Config']['Image']='web:stable';self.service.invalidate()
         self.assertFalse(any(row['update_available'] for row in self.service.listing()['containers']))
+
+    def test_containerd_check_and_cached_indicator_use_matching_digest_types(self):
+        # Seed a legacy config-digest cache; it must not leak into manifest checks.
+        self.assertEqual(self.service._check(lambda text: None), 0)
+        legacy_key = next(row for row in inventory(self.fake)['containers'] if row['name']=='web')['cache_key']
+        self.fake.rows[0]['ImageManifestDescriptor'] = dict(digest=digest('d'))
+        self.fake.descriptors['web:latest'] = digest('e')
+        self.fake.targets['web@'+digest('e')] = dict(manifests=[
+            dict(digest=digest('d'), platform=dict(os='linux', architecture='amd64')),
+            dict(digest=digest('f'), platform=dict(os='linux', architecture='arm64')),
+        ])
+        self.fake.targets['web@'+digest('d')] = digest('b')
+        self.service.invalidate()
+        row = next(row for row in self.service.listing()['containers'] if row['name']=='web')
+        self.assertNotEqual(row['cache_key'], legacy_key)
+        self.assertFalse(row['update_available'])
+        output = []
+        self.assertEqual(self.service._check(output.append), 0)
+        self.assertIn('web (web:latest): UP TO DATE', ''.join(output))
+        self.service.invalidate()
+        self.assertFalse(any(row['update_available'] for row in self.service.listing()['containers']))
+        self.fake.rows[0]['ImageManifestDescriptor']['digest'] = digest('c')
+        output = []
+        self.assertEqual(self.service._check(output.append), 0)
+        self.assertIn('web (web:latest): UPDATE AVAILABLE', ''.join(output))
+        self.service.invalidate()
+        self.assertTrue(next(row for row in self.service.listing()['containers'] if row['name']=='web')['update_available'])
 
     def test_update_confirmation_runs_exact_command_and_all_actions_share_one_job(self):
         recipe=dict(command='printf first; sleep .3; printf last',cwd=str(self.folder),timeout=5)

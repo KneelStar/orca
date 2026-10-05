@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.6
+
+- Fix false image update warnings with Docker's containerd image store, including `portainer/portainer-ce:lts`. Compare the installed platform manifest with the registry platform manifest; retain configuration-digest comparisons for classic Docker image storage.
+- Keep cached update indicators consistent with check output and separate manifest targets from older configuration-digest cache entries.
+- Use the container's platform metadata when available, ignore changes to other architectures, and pin registry reads to one release during each check. Missing manifest metadata produces a check failure instead of an update warning.
+- Add regression coverage for containerd comparisons and cached indicators. All 31 targeted image-update, Docker, and execution-security tests pass.
+
 ## 0.2.5
 
 - Security fixes.
@@ -62,7 +69,6 @@ Regression coverage is in `tests/test_security_app.py`, `tests/test_execution_se
 - `pip check`, Python compilation, JavaScript syntax checks, and `git diff --check` passed.
 - The expanded `tests/frontend-security.cjs` passed, including protected HTTP 401 cleanup, an expired session attempting sign-out, remote HTTP 502 authentication isolation, wrong-password handling, malicious metadata, and stale responses. `tests/browser.cjs` passed again after the final UI changes and subprocess proxy integration. `tests/reorder.cjs` passed before the final expiry UI refinement.
 - The unmodified Docker browser suite fails an existing layout assertion at `tests/docker-browser.cjs:28`: the heading and Add action button tops differ by 9 pixels under both original and patched JavaScript. All remaining assertions passed using a disposable copy that omitted only that assertion. No CSS change or test weakening was committed.
-
 
 ## 0.2.4
 

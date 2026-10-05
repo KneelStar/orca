@@ -44,7 +44,7 @@ class DockerService:
                     recipe = self.store.put('docker-recipes', dict(id=row['group'], **row['generated'], edited=False))
                 row['recipe'] = recipe
                 cached = self.store.get('docker-images', row['cache_key']) if row['cache_key'] else None
-                row['update_available'] = bool(cached and cached.get('target') and cached['target'] != row['image_id'])
+                row['update_available'] = bool(cached and cached.get('target') and cached['target'] != row.get('comparison_id', row['image_id']))
                 row['update_enabled'] = bool(recipe.get('command')) and not row['self_update']
                 row.pop('generated', None)
                 rows.append(row)
@@ -137,7 +137,7 @@ class DockerService:
             elif result.get('pinned'):
                 detail = 'DIGEST PINNED — change the configured reference to select another image'
             else:
-                detail = 'UPDATE AVAILABLE' if result.get('target') != row['image_id'] else 'UP TO DATE'
+                detail = 'UPDATE AVAILABLE' if result.get('target') != row.get('comparison_id', row['image_id']) else 'UP TO DATE'
             append(f"{row['name']} ({row['image']}): {detail}\n")
         for warning in data['warnings']:
             append('Warning: ' + warning + '\n')

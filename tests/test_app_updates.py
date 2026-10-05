@@ -20,6 +20,8 @@ class FakeDocker:
         self.containers = containers
         self.targets = targets
         self.calls = []
+        self.descriptors = {}
+        self.image_metadata = dict(Os='linux', Architecture='amd64')
 
     def text(self, *args):
         self.calls.append(args)
@@ -32,9 +34,11 @@ class FakeDocker:
         if args[:2] == ('container', 'inspect'):
             return [self.containers[args[2]]]
         if args[:2] == ('image', 'inspect'):
-            return [dict(Os='linux', Architecture='amd64')]
+            return [self.image_metadata]
         if args[:3] == ('buildx', 'imagetools', 'inspect'):
             if args[3] == '--format':
+                if args[4] == '{{json .Manifest}}':
+                    return dict(digest=self.descriptors[args[-1]])
                 return dict(os='linux', architecture='amd64')
             target = self.targets[args[-1]]
             if isinstance(target, Exception):
@@ -44,6 +48,39 @@ class FakeDocker:
 
 
 class AppUpdateTests(unittest.TestCase):
+    def test_containerd_compares_platform_manifest_instead_of_index_or_config(self):
+        reference = 'portainer/portainer-ce:lts'
+        row = container('portainer', reference, digest('a'))
+        row['ImageManifestDescriptor'] = dict(digest=digest('d'), platform=dict(os='linux', architecture='amd64'))
+        docker = FakeDocker({'a': row}, {
+            'portainer/portainer-ce@' + digest('e'): dict(manifests=[
+                dict(digest=digest('d'), platform=dict(os='linux', architecture='amd64')),
+                dict(digest=digest('f'), platform=dict(os='linux', architecture='arm64')),
+            ]),
+            'portainer/portainer-ce@' + digest('d'): digest('b'),
+        })
+        docker.descriptors[reference] = digest('e')
+        # Image-index inspection can default to a different host platform.
+        docker.image_metadata['Architecture'] = 'arm64'
+        # The index changed for another architecture; our platform is unchanged.
+        self.assertEqual(check_apps(docker)['apps'][0]['status'], 'current')
+        row['ImageManifestDescriptor']['digest'] = digest('c')
+        self.assertEqual(check_apps(docker)['apps'][0]['status'], 'update')
+
+    def test_containerd_single_platform_manifest(self):
+        row = container('web', 'web:stable', digest('d'))
+        row['ImageManifestDescriptor'] = dict(digest=digest('d'))
+        docker = FakeDocker({'a': row}, {'web@' + digest('d'): digest('b')})
+        docker.descriptors['web:stable'] = digest('d')
+        self.assertEqual(check_apps(docker)['apps'][0]['status'], 'current')
+
+    def test_missing_containerd_manifest_metadata_reports_unknown(self):
+        docker = FakeDocker({'a': container('web', 'web:stable', digest('a'))}, {})
+        docker.image_metadata['Descriptor'] = dict(digest=digest('a'))
+        result = check_apps(docker)['apps'][0]
+        self.assertEqual(result['status'], 'unknown')
+        self.assertIn('manifest digest', result['containers'][0]['detail'])
+
     def test_groups_services_and_replicas_and_checks_shared_images_once(self):
         docker = FakeDocker({
             'a': container('web-1', 'web:stable', digest('a')),

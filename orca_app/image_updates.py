@@ -118,8 +118,32 @@ def repository(reference):
     return name
 
 
-def registry_image_id(docker, reference, platform):
-    """Resolve a tag to its matching platform's image configuration digest."""
+def installed_image_id(container, image):
+    """Select the digest type used by the installed Docker image store."""
+    descriptor = container.get('ImageManifestDescriptor') or {}
+    digest = descriptor.get('digest', '')
+    if descriptor:
+        if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest):
+            raise RuntimeError('Installed image manifest digest is unavailable.')
+        return digest, 'manifest'
+    if image.get('Descriptor'):
+        raise RuntimeError('Docker did not provide the container image manifest digest.')
+    return container['Image'], 'config'
+
+
+def registry_image_id(docker, reference, platform, digest_kind='config'):
+    """Resolve a tag to a platform digest of the same type as the local image."""
+    if digest_kind not in ('config', 'manifest'):
+        raise RuntimeError('Unsupported image digest type.')
+    manifest_digest = ''
+    if digest_kind == 'manifest':
+        descriptor = docker.json('buildx', 'imagetools', 'inspect', '--format',
+                                 '{{json .Manifest}}', reference)
+        manifest_digest = descriptor.get('digest', '')
+        if not re.fullmatch(r'sha256:[0-9a-f]{64}', manifest_digest):
+            raise RuntimeError('Registry image manifest digest is unavailable.')
+        # Pin subsequent reads so a tag moving mid-check cannot mix releases.
+        reference = repository(reference) + '@' + manifest_digest
     manifest = docker.json('buildx', 'imagetools', 'inspect', '--raw', reference)
     matched_platform = False
     for _ in range(4):
@@ -136,6 +160,8 @@ def registry_image_id(docker, reference, platform):
                     raise RuntimeError('Registry image CPU variant does not match.')
                 if platform[3] and config.get('os.version', '') != platform[3]:
                     raise RuntimeError('Registry image OS version does not match.')
+            if digest_kind == 'manifest':
+                return manifest_digest
             return digest
         matches = []
         for entry in manifest['manifests']:
@@ -153,6 +179,7 @@ def registry_image_id(docker, reference, platform):
         digest = matches[0].get('digest', '')
         if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest):
             raise RuntimeError('Registry manifest has an invalid platform digest.')
+        manifest_digest = digest
         manifest = docker.json('buildx', 'imagetools', 'inspect', '--raw',
                                repository(reference) + '@' + digest)
     raise RuntimeError('Registry manifest nesting is unsupported.')
@@ -208,12 +235,17 @@ def check_apps(docker, app=None):
                     image = images[current]
                     platform = (image.get('Os'), image.get('Architecture'),
                                 image.get('Variant', ''), image.get('OsVersion', ''))
+                    installed_platform = (container.get('ImageManifestDescriptor') or {}).get('platform')
+                    if installed_platform:
+                        platform = tuple(installed_platform.get(field, '') for field in
+                                         ('os', 'architecture', 'variant', 'os.version'))
                     if not all(platform[:2]):
                         raise RuntimeError('Installed image platform is unavailable.')
-                    key = (reference, platform)
+                    current, digest_kind = installed_image_id(container, image)
+                    key = (reference, platform, digest_kind)
                     if key not in registry:
                         try:
-                            registry[key] = registry_image_id(docker, reference, platform)
+                            registry[key] = registry_image_id(docker, reference, platform, digest_kind)
                         except RuntimeError as error:
                             registry[key] = error
                     target = registry[key]

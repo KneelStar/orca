@@ -8,11 +8,14 @@ import shlex
 import sys
 import time
 
-from .image_updates import Docker, registry_image_id
+from .image_updates import Docker, registry_image_id, installed_image_id
 
 
-def cache_key(endpoint, reference, platform):
-    return hashlib.sha256(json.dumps([endpoint, reference, platform]).encode()).hexdigest()
+def cache_key(endpoint, reference, platform, digest_kind='config'):
+    parts = [endpoint, reference, platform]
+    if digest_kind != 'config':
+        parts.append(digest_kind)
+    return hashlib.sha256(json.dumps(parts).encode()).hexdigest()
 
 
 def identity(endpoint, project, name):
@@ -123,6 +126,8 @@ def inventory(docker, self_id='', stats=True, self_token_hash='', identifier=Non
             recipes[group].update(command='', reason='Project containers disagree about their Compose configuration. Provide an update command.')
         platform = None
         platform_error = ''
+        comparison_id = container.get('Image', '')
+        digest_kind = 'config'
         try:
             current = container['Image']
             if not focused and current not in images:
@@ -130,8 +135,13 @@ def inventory(docker, self_id='', stats=True, self_token_hash='', identifier=Non
             if not focused:
                 image = images[current]
                 platform = [image.get('Os'), image.get('Architecture'), image.get('Variant', ''), image.get('OsVersion', '')]
+                installed_platform = (container.get('ImageManifestDescriptor') or {}).get('platform')
+                if installed_platform:
+                    platform = [installed_platform.get(field, '') for field in
+                                ('os', 'architecture', 'variant', 'os.version')]
                 if not all(platform[:2]):
                     raise RuntimeError('Image platform is unavailable.')
+                comparison_id, digest_kind = installed_image_id(container, image)
         except (RuntimeError, KeyError) as error:
             platform = None
             platform_error = str(error)
@@ -142,12 +152,13 @@ def inventory(docker, self_id='', stats=True, self_token_hash='', identifier=Non
         measure = measures.get(identifier) or {}
         live = status.get('Status') == 'running'
         row = dict(id=identifier, name=name, tag=tag, image=reference, image_id=container.get('Image', ''),
+                   comparison_id=comparison_id, digest_kind=digest_kind,
                    project=project, group=group, state=status.get('Status', 'unknown'),
                    health=(status.get('Health') or {}).get('Status'), exit_code=status.get('ExitCode'),
                    oom=bool(status.get('OOMKilled')), cpu=measure.get('CPUPerc') if live else None,
                    memory=(measure.get('MemUsage', '').split(' / ')[0] or None) if live else None,
                    platform=platform, platform_error=platform_error,
-                   cache_key=cache_key(endpoint, reference, platform) if platform else None,
+                   cache_key=cache_key(endpoint, reference, platform, digest_kind) if platform else None,
                    generated=recipes[group], managed=bool(labels.get('com.docker.swarm.service.name')))
         rows.append(row)
         own_token = any(value.startswith('ORCA_CLIENT_TOKEN=') and
@@ -178,7 +189,7 @@ def check_images(docker, self_id=''):
             record.update(error='No registry repository/tag is configured for this image.')
         else:
             try:
-                record['target'] = registry_image_id(docker, reference, row['platform'])
+                record['target'] = registry_image_id(docker, reference, row['platform'], row['digest_kind'])
             except RuntimeError as error:
                 record['error'] = str(error)
         results[record['id']] = record
