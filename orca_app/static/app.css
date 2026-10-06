@@ -106,3 +106,18 @@ body{box-sizing:border-box;min-height:100vh;min-height:100svh;display:flex;flex-
 #orca #docker-progress-output{min-height:140px;max-height:45vh}
 @media(max-width:720px){#orca #docker-panel{padding:12px}#orca .docker-table td,#orca .docker-table th{padding:10px 8px}#orca .docker-controls .icon-button{width:36px;min-width:36px;height:36px}#orca .docker-name{min-width:150px}}
 @media(pointer:coarse){#orca .docker-controls .icon-button,#orca .state-dot{width:44px;min-width:44px;height:44px}}
+
+/* Keep visibility separate from the name so it cannot be clipped. */
+#orca .shortcut-heading{display:flex;align-items:center;gap:8px;min-width:0}
+#orca .shortcut-heading h3{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#orca .shortcut-visibility{flex:none;width:18px;height:18px;color:var(--o-sub)}
+#orca .shortcut-visibility svg{display:block;width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#orca .action-copy{display:flex;flex-direction:column;gap:4px;min-width:0}
+#orca .action-description{white-space:pre-wrap;overflow-wrap:anywhere}
+
+#orca .action-shell .action-run{min-width:0}
+#orca .action-copy{flex:1}
+#orca .action-copy .action-description{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#orca .shortcut-fallback svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8}
+#orca .shortcut-new-tab{position:absolute;right:-5px;bottom:-5px;width:14px;height:14px;display:grid;place-items:center;border-radius:3px;background:var(--o-panel);color:var(--o-ink)}
+#orca .shortcut-new-tab svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}

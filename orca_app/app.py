@@ -382,7 +382,8 @@ def create_app(overrides=None):
         if cwd and execution.mode == 'local' and not Path(cwd).is_dir():
             abort(400, 'Working directory does not exist on this client.')
         return jsonify(store.put('actions', dict(id=key or uuid.uuid4().hex, name=text(data, 'name'),
-            command=text(data, 'command', 16384), cwd=cwd, timeout=timeout)))
+            command=text(data, 'command', 16384), description=text(data, 'description', 2000, optional=True),
+            cwd=cwd, timeout=timeout)))
 
     @app.delete('/api/host/actions/<key>')
     @protect(machine=True)
