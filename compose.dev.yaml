@@ -1,0 +1,4 @@
+services:
+  orchestrator:
+    image: orca:dev
+    build: .
