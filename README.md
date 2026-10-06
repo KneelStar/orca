@@ -1,6 +1,8 @@
 # Orca
 
-Orca is the central dashboard. **Orca Client** is an independent server manager installed on each machine. They share a Python package and image, but run as separate services with separate settings and databases. Clients never communicate with one another.
+Orca is a personal project, built around my own needs and roughly 90% vibe coded. It's inspired by [Homarr](https://homarr.dev/), which is probably what you should use. Use Orca at your own risk; there are no guarantees.
+
+Orca is the central dashboard for your private cloud. **Orca Client** is an independent server manager installed on each machine. They share a Python package and image, but run as separate services with separate settings and databases. Clients never communicate with one another.
 
 Version 0.2.6 includes:
 
