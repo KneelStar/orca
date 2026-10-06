@@ -55,6 +55,30 @@ class OrcaTests(unittest.TestCase):
         self.assertEqual(data['public_title'],'Family links')
         self.assertIsNone(data['client_name'])
 
+    def test_action_description_persistence_and_validation(self):
+        host = self.host()
+        client = host.test_client()
+        headers = self.login(client)
+        data = {'name': 'Status', 'command': 'printf ok',
+                'description': 'Check services.\nRead-only action.'}
+        saved = client.post('/api/host/actions', headers=headers, json=data)
+        self.assertEqual(saved.status_code, 200)
+        key = saved.json['id']
+        reopened = create_app(dict(self.config, ROLE='client',
+                                  DATABASE=str(Path(self.temp.name)/'host.sqlite3')))
+        other = reopened.test_client()
+        other_headers = self.login(other)
+        self.assertEqual(other.get('/api/host/actions', headers=other_headers).json[0]['description'],
+                         data['description'])
+        for invalid in (2001 * 'x', 123):
+            response = client.put('/api/host/actions/' + key, headers=headers,
+                                  json=dict(data, description=invalid))
+            self.assertEqual(response.status_code, 400)
+        data.pop('description')
+        updated = client.put('/api/host/actions/' + key, headers=headers, json=data)
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json['description'], '')
+
     def test_shortcut_tab_preference(self):
         headers=self.login()
         data={'name':'Service','url':'https://example.com','visibility':'shared'}
