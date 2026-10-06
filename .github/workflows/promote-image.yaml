@@ -1,0 +1,43 @@
+name: Choose latest Orca release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Existing stable image version, without v (for example 0.2.7)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: orca-latest
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote existing release by digest
+        env:
+          VERSION: ${{ inputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Use MAJOR.MINOR.PATCH'; exit 1; }
+          image="ghcr.io/${REPOSITORY,,}"
+          digest=$(docker buildx imagetools inspect "$image:$VERSION" --format '{{json .Manifest}}' | jq -r '.digest')
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo 'Invalid source digest'; exit 1; }
+          docker buildx imagetools create --tag "$image:latest" "$image@$digest"
+          echo "Promoted $image:$VERSION ($digest) to latest." >> "$GITHUB_STEP_SUMMARY"

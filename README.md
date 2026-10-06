@@ -28,25 +28,64 @@ Python 3.10+, Flask, Waitress, SQLite, psutil, and plain HTML/CSS/JavaScript. No
 
 Admin sessions expire eight hours after login. Logout revokes the session on the server, and changing the admin password invalidates earlier sessions. Installing these security fixes requires a fresh login because older cookies have no server-side session record. See [the 0.2.6 security review](CHANGELOG.md#025) for the findings and validation.
 
-## Exporting a local image
+## Published images and releases
 
-The orchestrator and client use the same image; `ORCA_ROLE` selects the service. Build and export it on a machine with Docker access:
+Orchestrator and client use `ghcr.io/kneelstar/orca:latest`; `ORCA_ROLE` selects the service. The production Compose files pull images and do not build locally. Named volumes retain the database across container replacements.
+
+### One-time GitHub setup
+
+1. Merge the workflows in `.github/workflows` into `main`. GitHub Actions must be enabled and allowed to use the Docker actions. Add **Python tests** as a required status check in your main ruleset after it has run.
+2. A push to `main` tests the app and publishes `edge` and `sha-<full commit>` images for Linux AMD64 and ARM64. PRs run tests without registry credentials or publishing permissions. **These builds never change `latest`.** You can also run **Build Orca images** manually on `main`.
+3. After the first successful image build, open your GitHub profile → Packages → orca → Package settings and change package visibility to **Public**. Public repository visibility alone does not make a GHCR package public. The workflow uses `GITHUB_TOKEN`; no personal publishing token is needed.
+
+### Publish and select a release
+
+1. On GitHub, open Releases → Draft a new release. Create a tag such as `v0.2.7` at the commit you want to release, write the release notes, and publish it. Stable tags must use `vMAJOR.MINOR.PATCH`; prerelease suffixes are not supported by this workflow.
+2. Wait for **Build Orca images** to pass. It tests and builds the tagged source, then publishes `ghcr.io/kneelstar/orca:0.2.7`. Existing release image tags are not intentionally overwritten; use a new version for changes. Publishing a release does **not** move `latest`.
+3. Open Actions → **Choose latest Orca release** → Run workflow. Select `main`, enter `0.2.7` without the `v`, and run it. This copies the existing multi-platform image by digest to `latest` without rebuilding it. Run it with an older version to move `latest` back. GitHub's “Latest release” designation is independent of this image tag.
+
+The first deployment needs a successful release build and promotion; `latest` does not exist before then. Development builds and release builds are separate builds, so a release can differ from an earlier development image if base images change.
+
+### Update a server
+
+Remove an old `ORCA_IMAGE=orca:0.2.6` setting from `.env`, or replace it with `ghcr.io/kneelstar/orca:latest`. Copy the updated Compose files to your server once. Back up the database before upgrading; data migrations can limit rollback.
+
+```sh
+# Orchestrator:
+docker compose pull
+docker compose up -d
+
+# Client:
+docker compose -f compose.client.yaml pull
+docker compose -f compose.client.yaml up -d
+
+# Client using host SSH:
+docker compose -f compose.client.yaml -f compose.client-ssh.yaml pull
+docker compose -f compose.client.yaml -f compose.client-ssh.yaml up -d
+```
+
+Run both commands from the deployment directory containing `.env`. Public images need no registry login. Check `docker compose ps` and logs after updating. Image updates do not update your Compose files or environment settings.
+
+For a server-specific rollback or version pin, set `ORCA_IMAGE=ghcr.io/kneelstar/orca:0.2.7` in `.env`, then pull and recreate using the same commands. Fixed version tags do not track newer releases.
+
+### Local development and offline images
+
+```sh
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+# Or for a client:
+docker compose -f compose.client.yaml -f compose.client-dev.yaml up -d --build
+```
+
+For offline deployments, build/export an image and explicitly select it in `.env`:
 
 ```sh
 docker build -t orca:0.2.6 .
 docker save orca:0.2.6 | gzip > orca-0.2.6.tar.gz
-```
-
-Copy `orca-0.2.6.tar.gz`, the appropriate Compose file, and that machine’s `.env` to the server. Set `ORCA_IMAGE=orca:0.2.6` in `.env`, then load the image there:
-
-```sh
+# On the server, after copying the archive:
 gunzip -c orca-0.2.6.tar.gz | docker load
-docker compose up -d
+# Set ORCA_IMAGE=orca:0.2.6 in .env, then:
+docker compose up -d --pull never
 ```
-
-The Compose files still default to `orca:0.2.6` and retain `build: .` for development when the repository is present. Set `ORCA_IMAGE=orca:0.2.6` to select this release. No registry or source checkout is needed on the deployment server.
-
-For the 0.2.6 image-check fix, update the client, preserve its named volume at `/data`, and rerun **Check image updates**. No database migration or host setup changes are required; a 0.2.6 orchestrator can use the updated client.
 
 ## Docker: Orca orchestrator
 
@@ -61,7 +100,7 @@ Copy `.env.orchestrator.example` to `.env`, then set:
 Generate random secrets with `python3 -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
 ```sh
-docker compose up -d --build
+docker compose up -d
 ```
 
 Visit the bound address and port. Shared visitors see only shared shortcuts. Use **Admin login** to add clients, private shortcuts, and actions. Shortcuts accept an optional **Favicon URL** for a manually chosen icon; leave it blank to use automatic favicon lookup.
@@ -71,7 +110,7 @@ Visit the bound address and port. Shared visitors see only shared shortcuts. Use
 On each server, copy `.env.client.example` to `.env`, then set its own admin password, session secret, and random `ORCA_CLIENT_TOKEN`. Set `ORCA_CLIENT_NAME`, `ORCA_BIND_IP`, and `ORCA_PORT=8001`.
 
 ```sh
-docker compose -f compose.client.yaml up -d --build
+docker compose -f compose.client.yaml up -d
 ```
 
 Register the client in Orca with its name, full URL including port, and matching client token. The main server can have an Orca Client too, using a different port.
@@ -88,7 +127,7 @@ For host actions from a Docker client, use the optional SSH configuration. This 
 4. Start the client with the override:
 
 ```sh
-docker compose -f compose.client.yaml -f compose.client-ssh.yaml up -d --build
+docker compose -f compose.client.yaml -f compose.client-ssh.yaml up -d
 ```
 
 Commands then run on that host, and metrics come from its Python/psutil. The target account's permissions apply. Commands cannot prompt for a sudo password; configure narrowly scoped noninteractive permissions for the specific actions you want. Long-running commands have a timeout on the host as well as in Orca. This is not an interactive terminal. Desktop wake actions may also need the correct user's display/session environment.
@@ -108,7 +147,7 @@ The script installs and enables the SSH server, installs Python/venv and sudo, c
 After successful setup, add or update these values in your existing client `.env`, preserving its passwords, session secret, client token, and port:
 
 ```dotenv
-ORCA_IMAGE=orca:0.2.6
+ORCA_IMAGE=ghcr.io/kneelstar/orca:latest
 ORCA_EXECUTION_MODE=ssh
 ORCA_SSH_TARGET=orca-run@host.docker.internal
 ORCA_SSH_PORT=22
@@ -117,7 +156,7 @@ ORCA_SSH_KEY_FILE=/etc/orca-ssh/id_ed25519
 ORCA_SSH_KNOWN_HOSTS_FILE=/etc/orca-ssh/known_hosts
 ```
 
-The script prints the Python path for the account's actual home directory if it differs from `/home/orca-run`. With the image already loaded, restart the client from the directory containing `.env` and both Compose files:
+The script prints the Python path for the account's actual home directory if it differs from `/home/orca-run`. With the image already pulled, restart the client from the directory containing `.env` and both Compose files:
 
 ```sh
 sudo docker compose -f compose.client.yaml -f compose.client-ssh.yaml up -d --no-build
